@@ -3,6 +3,8 @@
 **Synthetic Credit Card Fraud Detection — a transaction & fraud data simulator.**
 
 [![CI](https://github.com/alexandreclem/synccfd/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandreclem/synccfd/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/synccfd.svg)](https://pypi.org/project/synccfd/)
+[![Downloads](https://img.shields.io/pypi/dm/synccfd.svg)](https://pypi.org/project/synccfd/)
 [![Docs](https://readthedocs.org/projects/synccfd/badge/?version=latest)](https://synccfd.readthedocs.io/en/latest/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
