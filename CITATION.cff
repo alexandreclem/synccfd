@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper it is based on."
+title: "SynCCFD: a synthetic credit card transaction and fraud data simulator"
+type: software
+authors:
+  - given-names: "Alexandre C. B."
+    family-names: "dos Santos"
+    email: alexandreclem.santos@gmail.com
+repository-code: "https://github.com/alexandreclem/synccfd"
+license: MIT
+version: 0.1.0
+keywords:
+  - synthetic data
+  - fraud detection
+  - credit card
+  - simulator
+preferred-citation:
+  type: conference-paper
+  title: "Construção de um Modelo Orientado a Dados para Detecção de Fraudes em Cartões de Crédito utilizando Dados Sintéticos"
+  year: 2024
+  collection-title: "Anais do XXIV Simpósio Brasileiro de Segurança da Informação e de Sistemas Computacionais (SBSeg 2024) — Artigos Curtos"
+  url: "https://sol.sbc.org.br/index.php/sbseg/article/view/30067/29874"
+  authors:
+    - given-names: "Alexandre C. B."
+      family-names: "dos Santos"
+    - given-names: "Roger de S."
+      family-names: "Passos"
+    - given-names: "Luis Domingues T. J."
+      family-names: "Tarrataca"
+    - given-names: "Douglas de O."
+      family-names: "Cardoso"
+    - given-names: "Diego B."
+      family-names: "Haddad"
+    - given-names: "Felipe da R."
+      family-names: "Henriques"
