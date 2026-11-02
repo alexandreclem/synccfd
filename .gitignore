@@ -69,6 +69,10 @@ coverage.xml
 venv/
 ENV/
 
+# Pipenv files (local environment only)
+Pipfile
+Pipfile.lock
+
 # Sphinx documentation build output
 docs/_build/
 

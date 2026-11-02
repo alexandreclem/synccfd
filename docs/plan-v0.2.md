@@ -53,6 +53,9 @@ Este plano define o que implementar, como e como verificar.
 6. **Python 3.9.** O `pyproject.toml` declara `requires-python >= 3.9`: não usar `match`,
    nem `X | Y` em anotações avaliadas em tempo de execução (usar `Optional[...]`/`Union[...]`).
 7. **Uma fase = um PR.** Cada fase termina com `ruff check .`, `mypy src` e `pytest` passando.
+8. O notebook `examples/simulator.ipynb` continua funcionando. Ele gera as figuras do
+   simulador usadas no TCC. Toda fase precisa manter esse notebook executável; na Fase 5
+   ele passa a exportar as figuras da dissertação.
 
 ## Visão geral da API final
 
@@ -198,6 +201,9 @@ src/synccfd/simulator/
       KS, p > 0,01) e taxa de fraude por cenário (diferença relativa < 20%).
 - [ ] Reprodutibilidade: mesma seed → mesmos dados; seeds diferentes → dados diferentes.
 - [ ] Benchmark simples em `scripts/benchmark.py` registrado no PR.
+- [ ] Teste que executa `examples/simulator.ipynb` de ponta a ponta com parâmetros
+      reduzidos (por exemplo, `nbclient` ou `pytest --nbmake`), marcado como `slow` e
+      rodando no CI.
 
 ---
 
@@ -447,6 +453,25 @@ cenários de fraude com comerciantes (Fase 3).
   de software do cap. 4.
 - README: novas colunas no esquema e aviso sobre `GT_*`.
 - CHANGELOG `0.2.0`, versão em `pyproject.toml` e `__init__.py`, atualizar `CITATION.cff`.
+- Atualizar `examples/simulator.ipynb` para gerar as figuras da dissertação: um parâmetro
+  escolhe o preset (`legacy` ou `realistic`) e o tamanho; cada figura é salva em PDF em
+  `docs/figures/exploratoria/` com os nomes da lista abaixo; mantém as mesmas figuras do
+  TCC, na mesma ordem, agora com os dados da v0.2, acrescentando o cenário 5 e, com
+  comerciantes, a visão por categoria. O diagrama do fluxo do simulador é redesenhado
+  junto com o diagrama de arquitetura.
+
+  Nomes das figuras, na ordem do notebook, tirados das exportações comentadas da versão
+  local do notebook usada no TCC (branch `backup/v0.2-old-history`):
+  1. `transactions_table` (no TCC era PNG, exportada com `dfi.export`)
+  2. `simulator_txs_time_per_type`
+  3. `simulator_txs_time_and_amounts`
+  4. `simulator_sampled_locations`
+  5. `simulator_city_radius`
+  6. `populous_cities_distribution`
+  7. `fraud_scenarios_count`
+  8. `transactions_per_day`
+  9. `fraud_scenarios_type_and_amounts`
+  10. `fraud_scenarios_bill_shipp_dist2`
 
 ---
 
