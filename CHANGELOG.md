@@ -7,6 +7,21 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Merchants and categories** (`MerchantConfig`, v2 engine). Terminals belong to
+  physical merchants; online merchants have virtual terminals. Ten default
+  categories (`DEFAULT_CATEGORIES`) set the amount, the hour (CP only in opening
+  hours), the weekend effect and the skimming risk. Customers get category
+  preferences, a spending factor and favourite merchants. New columns:
+  `MERCHANT_ID` and `MERCHANT_CATEGORY` in the transactions, `MERCHANT_ID` in the
+  terminal profiles, preferences in the customer profiles, and a new
+  `merchant_profiles` table (`DatasetGenerator.merchant_profiles`, saved by
+  `save()`). Without merchants, the output is unchanged.
+- With merchants, regime B of a drifting customer changes the category preferences,
+  and the injected frauds buy in the categories of each scenario. Scenario 2
+  compromises whole merchants, by the category's skimming risk; scenario 3 can
+  change categories over time (`s3_category_schedule`).
+- `examples/merchants.ipynb` (figures in `docs/figures/fase4/`), and category views
+  in `examples/drift.ipynb` and `examples/frauds.ipynb`.
 - **Fraud injection** (`FraudConfig(mechanism="inject")`, v2 engine): fraudsters make
   new transactions instead of altering or labelling legitimate ones. Scenario 1
   becomes a purchase far above the victim's recent amounts. In scenario 2, a

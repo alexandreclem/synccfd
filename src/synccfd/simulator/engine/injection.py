@@ -36,7 +36,7 @@ Each fraud has a fraudster (``GT_FRAUDSTER_ID``) and belongs to a campaign
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import pandas as pd
@@ -45,6 +45,9 @@ from ..config import FraudConfig
 from ..location import sampling
 from ..location.features import LocationFeatures
 from .transactions import SECONDS_PER_DAY, draw_times_of_day
+
+if TYPE_CHECKING:
+    from .merchants import MerchantWorld
 
 FRAUD_GT_COLUMNS = (
     "GT_FRAUD_SCENARIO",
@@ -125,6 +128,7 @@ class _History:
             customers["billing_lat"].to_numpy(),
             customers["billing_long"].to_numpy(),
         )
+        self.shop: Optional[_Shop] = None
 
     def _span(self, customer: int, start: float, stop: float) -> tuple[int, int]:
         lo, hi = self.starts[customer], self.stops[customer]
@@ -168,6 +172,56 @@ class _History:
         return float(self.billing[0][customer]), float(self.billing[1][customer])
 
 
+class _Shop:
+    """Merchant categories of the injected frauds (only with merchants)."""
+
+    def __init__(self, world: "MerchantWorld", customers: pd.DataFrame, config):
+        self.world = world
+        self.available = list(customers["available_terminals"])
+        self.cnp_prob = customers["cnp_prob"].to_numpy()
+        self.weights = world.config.weights()
+        self.s1 = world.category_index(config.s1_categories)
+        self.s4 = world.category_index(config.s4_categories)
+        self.s5 = world.category_index(config.s5_categories)
+        self.s3_steps = [
+            (start, world.category_index(names))
+            for start, names in config.s3_category_schedule
+        ]
+
+    def pick(self, categories: np.ndarray, rng: np.random.Generator) -> int:
+        """A category among ``categories``, by global weight."""
+        p = self.weights[categories] / self.weights[categories].sum()
+        return int(categories[rng.choice(len(categories), p=p)])
+
+    def online_terminal(
+        self, categories: np.ndarray, rng: np.random.Generator
+    ) -> tuple[int, int]:
+        """Virtual terminal of an online merchant of one of ``categories`` (those
+        with CNP), by popularity; returns ``(terminal, category)``."""
+        k = self.pick(categories[self.world.has_cnp[categories]], rng)
+        merchant = self.world.draw_online(k, 1, rng)
+        return int(self.world.virtual_terminal(merchant)[0]), k
+
+    def s3_categories(self, t: float, n_days: int) -> np.ndarray:
+        fraction = t / SECONDS_PER_DAY / n_days
+        active = self.s3_steps[0][1]
+        for start, categories in self.s3_steps:
+            if fraction >= start:
+                active = categories
+        return active
+
+    def amount(self, category: int, rng: np.random.Generator) -> float:
+        """A typical amount of the category (``median * LogNormal(0, sigma)``)."""
+        w = self.world
+        return float(
+            _cents_up(
+                np.array(
+                    [w.median[category] * np.exp(rng.normal() * w.sigma[category])]
+                )
+            )[0]
+        )
+
+
 def inject_frauds(
     tx: dict,
     customers: pd.DataFrame,
@@ -176,18 +230,23 @@ def inject_frauds(
     config: FraudConfig,
     rngs: dict[int, np.random.Generator],
     n_days: int,
+    merchants: Optional["MerchantWorld"] = None,
 ) -> dict[str, np.ndarray]:
     """Return the injected transactions.
 
     ``tx`` holds the legitimate transactions in chronological order, with
     ``GT_COMPROMISE_ID`` (``-1``), which scenario 2 fills in place for the purchases
-    whose card was read at a compromised terminal.
+    whose card was read at a compromised terminal. With ``merchants``, the frauds
+    are made at merchants of the categories of each scenario, and scenario 2
+    compromises whole merchants.
     """
     terminals = (
         terminal_profiles["terminal_lat"].to_numpy(),
         terminal_profiles["terminal_long"].to_numpy(),
     )
     history = _History(tx, customers)
+    if merchants is not None:
+        history.shop = _Shop(merchants, customers, config)
     ids = _Ids()
     out = _Injected()
     s3: list[_S3Campaign] = []
@@ -217,7 +276,7 @@ def inject_frauds(
                     )
                 )
     if s3:
-        _scenario_3(out, history, config, terminals, loc_features, s3, rngs[3])
+        _scenario_3(out, history, config, terminals, loc_features, s3, n_days, rngs[3])
     if 4 in scenarios:
         _scenario_4(out, history, config, terminals, loc_features, n_days, rngs[4], ids)
 
@@ -348,6 +407,103 @@ def _card_sequence(
     )
 
 
+def _card_sequence_merchants(
+    out: _Injected,
+    history: _History,
+    shop: _Shop,
+    customer: int,
+    day: int,
+    location: tuple[float, float],
+    cnp_attempt_prob: float,
+    nearest_fallback: bool,
+    terminals,
+    loc_features: LocationFeatures,
+    config: FraudConfig,
+    rng: np.random.Generator,
+    **ground_truth,
+) -> None:
+    """``_card_sequence`` with merchants: purchases at merchants of
+    ``s4_categories``, with typical amounts of the category. CP purchases need a
+    nearby merchant open at that hour; the sequence starts between 8 h and 20 h and
+    stops at the first CP purchase with no open merchant nearby (as well as at the
+    block, the limit, ``s4_max_txs`` or 24 h)."""
+    world = shop.world
+    n_physical = world.n_physical_terminals
+    physical = (terminals[0][:n_physical], terminals[1][:n_physical])
+    cp_categories = shop.s4[world.has_cp[shop.s4]]
+    nearby = _nearby_terminals(
+        location[0],
+        location[1],
+        physical,
+        loc_features.available_terminals_radius,
+        False,
+    )
+    nearby = nearby[np.isin(world.terminal_category[nearby], cp_categories)]
+    if len(nearby) == 0 and nearest_fallback and len(cp_categories):
+        allowed = np.flatnonzero(
+            np.isin(world.terminal_category[:n_physical], cp_categories)
+        )
+        if len(allowed):
+            distances = sampling.haversine_km(
+                np.array(location[0]),
+                np.array(location[1]),
+                physical[0][allowed],
+                physical[1][allowed],
+            )
+            nearby = allowed[[int(np.argmin(distances))]]
+    online = shop.s4[world.has_cnp[shop.s4]]
+    tau = day * SECONDS_PER_DAY + int(rng.integers(8 * 3600, 20 * 3600))
+    bill = history.billing_at(customer, tau)
+    seconds, amounts, cnp, chosen = [], [], [], []
+    t, total = float(tau), 0.0
+    for _ in range(config.s4_max_txs):
+        attempt_cnp = len(online) > 0 and (
+            len(nearby) == 0 or rng.random() < cnp_attempt_prob
+        )
+        if attempt_cnp and cnp_attempt_prob > 0:
+            terminal, k = shop.online_terminal(online, rng)
+        else:
+            hour = int(t % SECONDS_PER_DAY // 3600)
+            open_now = nearby[world.open_hours[world.terminal_category[nearby], hour]]
+            if len(open_now) == 0:
+                break  # nothing open nearby: the fraudster stops
+            terminal = int(open_now[rng.integers(len(open_now))])
+            k = int(world.terminal_category[terminal])
+            attempt_cnp = False
+        amount = shop.amount(k, rng)
+        if total + amount > config.s4_spending_limit:
+            break
+        seconds.append(int(t))
+        amounts.append(amount)
+        cnp.append(attempt_cnp)
+        chosen.append(terminal)
+        total += amount
+        if rng.random() < config.s4_block_prob_per_tx:
+            break
+        t += rng.exponential(config.s4_mean_gap_minutes * 60)
+        if t >= tau + SECONDS_PER_DAY:
+            break
+    if not seconds:
+        return
+    is_cnp = np.array(cnp)
+    terminal_ids = np.array(chosen, dtype=np.int64)
+    term_lat, term_long = terminals[0][terminal_ids], terminals[1][terminal_ids]
+    out.add(
+        TX_TIME_SECONDS=np.array(seconds, dtype=np.int64),
+        CUSTOMER_ID=customer,
+        TERMINAL_ID=terminal_ids,
+        TX_AMOUNT=np.array(amounts),
+        IS_CNP=is_cnp,
+        TX_SHIPP_LAT=np.where(is_cnp, location[0], term_lat),
+        TX_SHIPP_LONG=np.where(is_cnp, location[1], term_long),
+        TX_BILL_LAT=bill[0],
+        TX_BILL_LONG=bill[1],
+        TX_TERM_LAT=term_lat,
+        TX_TERM_LONG=term_long,
+        **ground_truth,
+    )
+
+
 def _scenario_1(
     out: _Injected,
     history: _History,
@@ -381,6 +537,19 @@ def _scenario_1(
             amount = _cents_up(
                 np.array([threshold * (1 + u * config.s1_amount_spread)])
             )
+            if history.shop is not None:
+                _scenario_1_purchase(
+                    out,
+                    history,
+                    history.shop,
+                    customer,
+                    day_start,
+                    amount,
+                    terminals,
+                    rng,
+                    ids,
+                )
+                continue
             # Purchase whose context is copied: a recent one, else the nearest in
             # time; a customer without any purchase gets a CNP purchase from its
             # profile
@@ -421,6 +590,56 @@ def _scenario_1(
             )
 
 
+def _scenario_1_purchase(
+    out: _Injected,
+    history: _History,
+    shop: _Shop,
+    customer: int,
+    day_start: int,
+    amount: np.ndarray,
+    terminals,
+    rng: np.random.Generator,
+    ids: _Ids,
+) -> None:
+    """With merchants: the anomalous purchase is at a merchant of a high-value
+    category (CP if the victim reaches one and does not buy online, else CNP)."""
+    world = shop.world
+    reach = world.terminals_by_category(shop.available[customer])
+    possible = np.array(
+        [k for k in shop.s1 if world.has_cnp[k] or len(reach[k])], dtype=np.int64
+    )
+    if len(possible) == 0:
+        return  # no merchant of these categories for this customer
+    k = shop.pick(possible, rng)
+    cp_ok = world.has_cp[k] and len(reach[k]) > 0
+    is_cnp = not cp_ok or (world.has_cnp[k] and rng.random() < shop.cnp_prob[customer])
+    if is_cnp:
+        terminal = int(world.virtual_terminal(world.draw_online(k, 1, rng))[0])
+    else:
+        terminal = int(reach[k][rng.integers(len(reach[k]))])
+    hour = int(world.draw_hours(np.array([k]), np.array([is_cnp]), rng)[0])
+    seconds = day_start + hour * 3600 + int(rng.integers(0, 3600))
+    billing = history.billing_at(customer, seconds)
+    term = (terminals[0][terminal], terminals[1][terminal])
+    shipping = billing if is_cnp else term
+    out.add(
+        TX_TIME_SECONDS=np.array([seconds], dtype=np.int64),
+        CUSTOMER_ID=customer,
+        TERMINAL_ID=terminal,
+        TX_AMOUNT=amount,
+        IS_CNP=is_cnp,
+        TX_SHIPP_LAT=shipping[0],
+        TX_SHIPP_LONG=shipping[1],
+        TX_BILL_LAT=billing[0],
+        TX_BILL_LONG=billing[1],
+        TX_TERM_LAT=term[0],
+        TX_TERM_LONG=term[1],
+        TX_FRAUD_SCENARIO=1,
+        GT_FRAUDSTER_ID=ids.fraudster(),
+        GT_CAMPAIGN_ID=ids.campaign(),
+    )
+
+
 def _scenario_2(
     out: _Injected,
     history: _History,
@@ -432,26 +651,43 @@ def _scenario_2(
     ids: _Ids,
 ) -> list[_S3Campaign]:
     """Compromised terminals read cards; cloned cards are used near the fraudster.
-    Returns the scenario-3 campaigns of the leaked cards."""
+    Returns the scenario-3 campaigns of the leaked cards.
+
+    With merchants, a whole physical merchant (all its terminals) is compromised,
+    chosen with probability proportional to the skimming risk of its category."""
     tx = history.tx
+    shop = history.shop
     n_terminals = len(terminals[0])
-    counts = config.daily_counts(2, n_terminals, n_days, rng)
     keys = tx["TERMINAL_ID"]
     order = np.argsort(keys, kind="stable")
     sorted_keys = keys[order]
     starts = np.searchsorted(sorted_keys, np.arange(n_terminals), side="left")
     stops = np.searchsorted(sorted_keys, np.arange(n_terminals), side="right")
+    # What is compromised: terminals, or physical merchants
+    risk: Optional[np.ndarray] = None
+    if shop is None:
+        n_units = n_terminals
+    else:
+        n_units = int((~shop.world.merchant_is_online).sum())
+        risk = shop.world.skimming_risk[shop.world.merchant_category[:n_units]]
+        risk = risk / risk.sum()
+    counts = config.daily_counts(2, n_units, n_days, rng)
     days = tx["TX_TIME_DAYS"]
     low, high = config.s2_use_delay_days_range
-    compromised_until = np.zeros(n_terminals, dtype=np.int64)
+    compromised_until = np.zeros(n_units, dtype=np.int64)
     leaked: list[_S3Campaign] = []
     for day in range(n_days):
-        n = min(int(counts[day]), n_terminals)
-        for terminal in rng.choice(n_terminals, size=n, replace=False):
-            if compromised_until[terminal] > day:
+        n = min(int(counts[day]), n_units)
+        for unit in rng.choice(n_units, size=n, replace=False, p=risk):
+            if compromised_until[unit] > day:
                 continue  # already compromised
-            compromised_until[terminal] = day + config.s2_duration_days
-            rows = order[starts[terminal] : stops[terminal]]
+            compromised_until[unit] = day + config.s2_duration_days
+            unit_terminals = (
+                [unit] if shop is None else shop.world.merchant_terminals[unit]
+            )
+            rows = np.sort(
+                np.concatenate([order[starts[t] : stops[t]] for t in unit_terminals])
+            )
             rows = rows[
                 (days[rows] >= day)
                 & (days[rows] < day + config.s2_duration_days)
@@ -475,6 +711,26 @@ def _scenario_2(
                     if location is None:
                         lat, long = _fraudster_locations(1, loc_features, rng)
                         location = (float(lat[0]), float(long[0]))
+                    if shop is not None:
+                        _card_sequence_merchants(
+                            out,
+                            history,
+                            shop,
+                            customer,
+                            use_day,
+                            location,
+                            0.0,  # a cloned card is a physical card: CP only
+                            True,
+                            terminals,
+                            loc_features,
+                            config,
+                            rng,
+                            TX_FRAUD_SCENARIO=2,
+                            GT_FRAUDSTER_ID=fraudster,
+                            GT_CAMPAIGN_ID=ids.campaign(),
+                            GT_COMPROMISE_ID=compromise,
+                        )
+                        continue
                     tau = use_day * SECONDS_PER_DAY + int(
                         rng.integers(0, SECONDS_PER_DAY)
                     )
@@ -521,8 +777,10 @@ def _scenario_3(
     terminals,
     loc_features: LocationFeatures,
     campaigns: list[_S3Campaign],
+    n_days: int,
     rng: np.random.Generator,
 ) -> None:
+    shop = history.shop
     missing = [c for c in campaigns if c.location is None]
     lat, long = _fraudster_locations(len(missing), loc_features, rng)
     for campaign, la, lo in zip(missing, lat, long):
@@ -551,13 +809,29 @@ def _scenario_3(
             [start + offset for start, offset in zip(starts, offsets)]
         ).astype(np.int64)
         n = len(seconds)
-        reference = history.reference_amount(c.customer, c.start, config)
-        amounts = _cents_up(
-            reference
-            * config.s3_amount_factor
-            * rng.lognormal(0.0, config.amount_log_sigma, n)
-        )
-        terminal = rng.integers(0, len(terminals[0]), n)
+        if shop is None:
+            reference = history.reference_amount(c.customer, c.start, config)
+            amounts = _cents_up(
+                reference
+                * config.s3_amount_factor
+                * rng.lognormal(0.0, config.amount_log_sigma, n)
+            )
+            terminal = rng.integers(0, len(terminals[0]), n)
+        else:
+            # Online merchants of the categories targeted at each burst, with
+            # amounts above the category median
+            burst_of = np.repeat(np.arange(n_bursts), sizes)
+            picks = [
+                shop.online_terminal(shop.s3_categories(starts[b], n_days), rng)
+                for b in burst_of
+            ]
+            terminal = np.array([t for t, _ in picks], dtype=np.int64)
+            category = np.array([k for _, k in picks], dtype=np.int64)
+            amounts = _cents_up(
+                shop.world.median[category]
+                * config.s3_amount_factor
+                * rng.lognormal(0.0, config.amount_log_sigma, n)
+            )
         bill_lat, bill_long = history.billing_at(c.customer, c.start)
         out.add(
             TX_TIME_SECONDS=seconds,
@@ -593,6 +867,33 @@ def _scenario_4(
     for day in range(n_days):
         for customer in _victims(n_customers, counts[day], rng):
             customer = int(customer)
+            if history.shop is not None:
+                bill = history.billing_at(customer, day * SECONDS_PER_DAY)
+                lat, long = sampling.random_points_around(
+                    np.array([bill[0]]),
+                    np.array([bill[1]]),
+                    loc_features.city_radius,
+                    loc_features.data["brazil_polygon"],
+                    rng,
+                )
+                _card_sequence_merchants(
+                    out,
+                    history,
+                    history.shop,
+                    customer,
+                    day,
+                    (float(lat[0]), float(long[0])),
+                    config.s4_cnp_attempt_prob,
+                    False,
+                    terminals,
+                    loc_features,
+                    config,
+                    rng,
+                    TX_FRAUD_SCENARIO=4,
+                    GT_FRAUDSTER_ID=ids.fraudster(),
+                    GT_CAMPAIGN_ID=ids.campaign(),
+                )
+                continue
             tau = day * SECONDS_PER_DAY + int(rng.integers(0, SECONDS_PER_DAY))
             bill = history.billing_at(customer, tau)
             # The fraudster is in the victim's city
@@ -657,7 +958,12 @@ def _scenario_5(
         gaps = rng.exponential(config.s5_mean_gap_seconds, n - 1)
         seconds = (start + np.concatenate([[0.0], np.cumsum(gaps)])).astype(np.int64)
         amounts = np.round(rng.uniform(min_amount, max_amount, n), 2)
-        terminal = rng.integers(0, len(terminals[0]), n)
+        if history.shop is None:
+            terminal = rng.integers(0, len(terminals[0]), n)
+        else:
+            # All tests at one online merchant of the testing categories
+            virtual, _ = history.shop.online_terminal(history.shop.s5, rng)
+            terminal = np.full(n, virtual, dtype=np.int64)
         bill_lat, bill_long = history.billing_at(customer, start)
         fraudster, campaign = ids.fraudster(), ids.campaign()
         out.add(
