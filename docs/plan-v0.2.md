@@ -565,8 +565,8 @@ foi feito assim. Escrito para ser adaptado diretamente para a dissertação.>
 
 ## Fase 0 — Rede de segurança e configuração da fraude
 
-**Status:** implementada em 2026-11-02, na branch `feat/v0.2-simulator`, aguardando
-revisão · PR *(a abrir)*
+**Status:** implementada e aprovada em 2026-11-02, na branch `feat/v0.2-simulator`
+· PR *(a abrir)*
 
 ### O que foi implementado
 
@@ -575,9 +575,24 @@ de regressão "golden". O script `scripts/make_golden.py` gera, com a configura�
 um conjunto pequeno (100 clientes, 200 terminais, 15 dias, início em 2023-01-01,
 `random_state=42`) e grava os três DataFrames em `tests/golden/data/` no formato Parquet.
 O teste `tests/golden/test_legacy_reproducibility.py` regenera o conjunto e o compara
-com os arquivos gravados por igualdade exata (`assert_frame_equal(..., check_exact=True)`).
-O commit do teste golden (`2c95ec5`) antecede todos os commits que alteram o código da
-biblioteca.
+com os arquivos gravados, coluna por coluna. IDs, tempos em segundos e dias, tipos de
+transação, rótulos de fraude e terminais disponíveis são comparados por igualdade exata.
+As colunas de ponto flutuante (coordenadas, valores das transações e parâmetros dos
+perfis de clientes) são comparadas com tolerância
+relativa de $10^{-12}$ e tolerância absoluta zero. As datas são convertidas para a
+mesma unidade (`datetime64[ns]`) antes da comparação exata. O commit do teste golden
+(`b27cfa7`) antecede todos os commits que alteram o código da biblioteca.
+
+A igualdade exata em todas as colunas, prevista no plano, não se sustenta entre
+plataformas. Gerado no Linux (Ubuntu 22.04, Python 3.10, pandas 2.3.3), o conjunto tem
+exatamente as mesmas linhas, os mesmos valores, tipos e rótulos (741 transações
+fraudulentas nos dois casos), mas as coordenadas diferem no último bit, em até
+$1{,}4 	imes 10^{-14}$, porque as bibliotecas matemáticas do Windows e do Linux
+arredondam de forma diferente. Além disso, a unidade inferida para `TX_DATETIME` depende
+da versão do pandas (`[ms]` no arquivo gravado com o pandas 3.0.3, `[ns]` no pandas
+2.3.3). A tolerância de $10^{-12}$ é cerca de cem vezes maior que a diferença observada e
+ainda detecta mudanças reais: um teste confirma que `amount_multiplier=5.0001` (variação
+relativa de $2 	imes 10^{-5}$ no valor) é rejeitado.
 
 Em seguida, todos os parâmetros da fraude que estavam fixos no código passaram a ser
 lidos de um objeto de configuração imutável, `FraudConfig`, definido em
@@ -626,6 +641,7 @@ v0.1 nas filas dos cenários 3 e 4 (ver "Decisões e justificativas").
 |---|---|---|
 | golden em três arquivos Parquet | pickle (`.pkl`) | pickles podem não abrir em outras versões do pandas, e o CI testa Python 3.9 a 3.12 |
 | comparar o DataFrame regenerado após passar pelo mesmo ciclo de escrita e leitura em Parquet | comparar direto com o arquivo lido | o Parquet devolve a coluna de listas `available_terminals` como arrays; o ciclo torna a comparação equivalente sem relaxar a igualdade exata |
+| floats com `rtol=1e-12` e `atol=0`, datas normalizadas para `[ns]`, demais colunas exatas | `check_exact=True` em tudo, como no plano | a igualdade exata falha no Linux só pelo último bit das coordenadas e pela unidade da data; rótulos, valores, IDs e tipos continuam exatos |
 | sortear os clientes dos cenários 3 e 4 numa única chamada, `sample(n=n3+n4, random_state=day)`, e dividir depois | um sorteio por cenário | preserva a sequência de sorteios da v0.1 |
 | `int(n * s3_tamper_fraction)` no lugar de `int(n / 3)` | manter a divisão por 3 fixa | verificado que `int(n * (1/3)) == int(n / 3)` para todo `n < 3 000 000`, então o padrão é idêntico |
 | contagem diária proporcional sorteada de $\mathrm{Poisson}(f \cdot N)$, sem mínimo | $\max(1, \mathrm{round}(f \cdot N))$, como no plano original | o mínimo de 1 tornava a taxa dependente do tamanho quando $f \cdot N < 1$ (ver "Desvios do plano"); a Poisson mantém a média exata para qualquer $N$ |
@@ -679,12 +695,15 @@ Nenhuma (a Fase 0 não tem notebook).
 | taxa de fraude com a regra original do plano, $\max(1, \mathrm{round}(f \cdot N))$, frações padrão | 1,78% (500) × 0,23% (5 000) | idem (medido antes da correção, para justificá-la) |
 | taxa de fraude média, modo proporcional (Poisson), frações padrão | 0,508% (500 clientes; DP 0,110%) × 0,543% (5 000 clientes; DP 0,029%); diferença relativa de 6,4% | terminais = 2 × clientes, 60 dias, início 2023-01-01, 20 sementes (0 a 19); DP = desvio-padrão entre sementes |
 | taxa média por cenário, mesma configuração | 500 clientes: cenário 1: 0,074%; 2: 0,166%; 3: 0,113%; 4: 0,156%. 5 000 clientes: 1: 0,057%; 2: 0,225%; 3: 0,117%; 4: 0,145% | idem |
+| maior diferença entre Windows e Linux no conjunto golden | $1{,}4 	imes 10^{-14}$ (em `TX_SHIPP_LONG`; demais coordenadas até $7{,}1 	imes 10^{-15}$); nenhuma diferença nas colunas não float | Windows 11, Python 3.11.4, pandas 3.0.3 × Ubuntu 22.04 (WSL), Python 3.10.12, pandas 2.3.3 |
 | tempo de geração das transações legítimas (motor legacy) | 6,1 s (500 clientes, 9 790 transações) e 47,5 s (5 000 clientes, 96 566 transações) | 10 dias; Windows 11, Python 3.11.4; referência para o benchmark da Fase 1 |
 
 ### Testes que comprovam o comportamento
-- `tests/golden/test_legacy_reproducibility.py`: a configuração padrão reproduz a
-  v0.1.0 exatamente (três DataFrames). Verificado também que o teste detecta uma
-  mudança mínima (`amount_multiplier=5.0001`).
+- `tests/golden/test_legacy_reproducibility.py`:
+  - `test_matches_v0_1_0`: a configuração padrão reproduz a v0.1.0 (três DataFrames;
+    colunas não float exatas, floats com `rtol=1e-12`);
+  - `test_detects_small_behaviour_change`: com `amount_multiplier=5.0001`, a comparação
+    falha na coluna `TX_AMOUNT`, isto é, a tolerância não esconde mudanças reais.
 - `tests/simulator/test_fraud_config.py`:
   - `test_defaults_match_v0_1`: os padrões correspondem às constantes da v0.1, incluindo
     `rate_mode="absolute"`;
@@ -722,10 +741,17 @@ Nenhuma (a Fase 0 não tem notebook).
   entre sementes.
 - O golden foi gravado como três arquivos Parquet (`v0_1_0_small_<nome>.parquet`), não
   um único arquivo.
+- O golden não usa `check_exact=True` em todas as colunas: floats com `rtol=1e-12` e
+  datas normalizadas para a mesma unidade (ver "O que foi implementado").
 - Fora do escopo original: correção dos 36 erros de `mypy` preexistentes (commit
-  `af7a236`, apenas anotações); remoção do `continue-on-error` do `mypy` no CI; job
+  `9fb3c15`, apenas anotações); remoção do `continue-on-error` do `mypy` no CI; job
   separado no CI para os testes `slow`; CI disparado também em push para branches
-  `feat/**`.
+  `feat/**`; runner do CI fixado em `ubuntu-24.04`, porque o `ubuntu-latest` (26.04) não
+  oferece mais Python 3.9; exemplo do README reformatado para o ruff 0.17, que passou a
+  formatar blocos de código em Markdown.
+- Os commits da Fase 0 foram reaplicados sobre o `origin/master` (o repositório no GitHub
+  foi recriado com outro histórico); por isso os hashes citados aqui são os da branch
+  reaplicada.
 
 ### Pendências / ideias
 - O mypy 2.x avisa que `python_version = "3.9"` não é mais suportado na configuração.
