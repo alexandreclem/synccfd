@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [0.2.0] — Unreleased
+## [0.2.0] — 2026-11-02
 
 **This release breaks compatibility with 0.1.0.** The v0.1 simulator (the one of the
 SBSeg 2024 paper) is still available with `pip install synccfd==0.1.0`.

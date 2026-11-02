@@ -9,6 +9,7 @@ authors:
 repository-code: "https://github.com/alexandreclem/synccfd"
 license: MIT
 version: 0.2.0
+date-released: "2026-11-02"
 keywords:
   - synthetic data
   - fraud detection

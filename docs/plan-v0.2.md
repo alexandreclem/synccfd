@@ -1955,9 +1955,26 @@ fraude por categoria. Nenhum rótulo ou legenda das figuras usa "v0.1", "v2", "l
 ou "engine": as regras são descritas pelo que fazem (por exemplo, "regra de rótulo
 por limiar fixo" × "fraude injetada").
 
+**Cenário 1: regra de rótulo por limiar fixo × fraude injetada.** A figura
+`fraudes_cenario1_regime_b.pdf` compara as duas regras em dois conjuntos, lado a lado,
+com o mesmo tamanho e a mesma semente: a etapa `drift` da ablação (*drift* e
+sazonalidade, sem comerciantes) e o conjunto completo. Em cada um, o limiar de R$ 220
+é aplicado diretamente às transações legítimas. Sem comerciantes, o valor da compra
+depende só do regime do cliente, e 86,0% das transações que o limiar rotularia vêm do
+regime B, que tem 13,1% das transações legítimas: o mesmo resultado da Fase 2 (86%),
+agora no conjunto da ablação. Nas vítimas da fraude injetada, o regime B fica em 9,7%
+(578 fraudes). Com comerciantes, o valor depende sobretudo da categoria: o limiar tira
+13,9% dos rótulos do regime B, perto dos 13,1% das transações legítimas, e a fraude
+injetada, 12,2% (527 fraudes). O limiar fixo rotula compras legítimas nos dois
+conjuntos (13 859 sem comerciantes e 933 997 com eles); o viés para os clientes em
+*drift* aparece quando o valor depende do cliente, e some quando depende da categoria.
+A fraude injetada não rotula nenhuma transação legítima e não se concentra no regime B
+em nenhum dos dois conjuntos (sem comerciantes, fica até abaixo da fração do regime B;
+ver "Pendências").
+
 **Versão.** A versão passou a 0.2.0 em `pyproject.toml`, `__init__.py`,
-`CITATION.cff` e na documentação; o CHANGELOG tem a seção `0.2.0`. O lançamento (tag,
-*release* no GitHub e PyPI) fica para depois da revisão.
+`CITATION.cff` e na documentação; o CHANGELOG tem a seção `0.2.0`, com a data de
+2026-11-02, também registrada no `date-released` do `CITATION.cff`.
 
 ### Decisões e justificativas
 | decisão | alternativa considerada | por que esta |
@@ -1980,6 +1997,7 @@ por limiar fixo" × "fraude injetada").
 | teste de regressão com frações de fraude maiores que as do `realistic()` | o `realistic()` exato | com 100 clientes e 15 dias, as frações padrão quase não geram fraude; com elas maiores, os cinco cenários aparecem e o teste cobre todo o código de fraude |
 | `DatasetGenerator()` = `presets.realistic()`; `None` desliga um componente | padrões sem componentes (como na v0.1) | a 0.2.0 já quebra a compatibilidade; o padrão passa a ser o simulador completo, que é o dataset da dissertação |
 | vazamentos do cenário 2 e escaladas do cenário 5 só viram cenário 3 se ele estiver ligado | gerar o cenário 3 mesmo sem ele em `scenarios` | `scenarios` define quais rótulos podem aparecer; antes, ligar só o cenário 2 (ou só o 5) falhava, porque o fluxo aleatório do cenário 3 não existia; com os cinco ligados, nada muda |
+| comparação do cenário 1 em dois conjuntos, lado a lado: a etapa `drift` da ablação e o conjunto completo | só o conjunto completo | com comerciantes, o valor depende sobretudo da categoria, e o viés do limiar fixo para o regime B quase some (13,9% contra 13,1%); a etapa `drift` mostra o efeito do *drift* sobre a regra de rótulo, e o conjunto completo, o que acontece nos dados dos experimentos |
 | 19,2% de clientes vítimas em 180 dias | frações menores, mais próximas da taxa de vítimas real | exemplos suficientes de cada cenário (de 233 a 697 vítimas por cenário), com 0,36% de fraude por transação |
 
 ### Parâmetros finais (padrões)
@@ -2023,7 +2041,7 @@ completa, na ordem do cap. 4, está no "Fechamento do [SIM]".
 |---|---|---|
 | `docs/figures/arquitetura/arquitetura_modulos.pdf` | Módulos do pacote `synccfd`: o `DatasetGenerator`, os *presets* e as configurações, o motor de simulação (`simulate()`), a geografia e o gabarito; em tracejado, os componentes opcionais. | 4.2 Arquitetura |
 | `docs/figures/arquitetura/fluxo_geracao.pdf` | Fluxo de geração do simulador, da semente às saídas, com a configuração que comanda cada etapa opcional. | 4.2 Arquitetura |
-| `docs/figures/fase3/fraudes_cenario1_regime_b.pdf` (nova legenda) | Cenário 1 e *drift*, nos mesmos dados: fração das transações legítimas que vêm do regime B; fração das transações que a regra de rótulo por limiar fixo (R$ 220, aplicada diretamente aos dados) rotularia que vêm do regime B; fração das vítimas da fraude injetada do cenário 1 que estavam no regime B no dia da fraude. | 4.4 Componentes novos — fraudes |
+| `docs/figures/fase3/fraudes_cenario1_regime_b.pdf` (nova figura e legenda) | Regra de rótulo por limiar fixo × fraude injetada (cenário 1) e *drift*. À esquerda, o conjunto sem comerciantes (etapa `drift` da ablação); à direita, o conjunto completo, com comerciantes; mesmo tamanho e mesma semente. Em cada um: fração das transações legítimas que vêm do regime B; fração das transações que a regra de rótulo por limiar fixo (R$ 220, aplicada diretamente aos dados) rotularia que vêm do regime B; fração das vítimas da fraude injetada do cenário 1 que estavam no regime B no dia da fraude. | 4.4 Componentes novos — fraudes |
 | `docs/figures/exploratoria/transactions_table.pdf` | As cinco primeiras transações do dataset final. | 4.6 Saídas e gabarito |
 | `docs/figures/exploratoria/simulator_txs_time_per_type.pdf` | Horário das transações CP e CNP nos cinco primeiros dias (amostra de 10 000). | 4.3 Modelo de simulação |
 | `docs/figures/exploratoria/simulator_txs_time_and_amounts.pdf` | Horário de todas as transações nos cinco primeiros dias e distribuição dos valores (escala log). | 4.8 Análise exploratória |
@@ -2045,7 +2063,8 @@ completa, na ordem do cap. 4, está no "Fechamento do [SIM]".
 | taxa de fraude por etapa da ablação, sem calibração (fator 1) | `base` 0,323%; `drift` 0,314%; `frauds` 0,369%; `merchants` 0,350% | `presets.ablation(step)`, média das sementes 42, 7 e 123 |
 | taxa de fraude por etapa da ablação, calibrada | `base` 0,347%; `drift` 0,343%; `frauds` 0,352%; `merchants` 0,350% (diferença máxima de 2,7% entre etapas; entre sementes, cerca de ±6%) | idem |
 | taxa de fraude por etapa, primeira versão (`base` e `drift` com adulteração) | `base` 0,577%; `drift` 0,893%; `frauds` 0,380%; `merchants` 0,356% | semente 42 |
-| regra de rótulo por limiar fixo × fraude injetada (cenário 1), dataset final | 13,1% das transações legítimas vêm do regime B; das que o limiar de R$ 220 rotularia, 13,9%; das vítimas da fraude injetada, 12,2% | `presets.realistic()` |
+| regra de rótulo por limiar fixo × fraude injetada (cenário 1), sem comerciantes | 13,1% das transações legítimas vêm do regime B; das que o limiar de R$ 220 rotularia (13 859), 86,0%; das vítimas da fraude injetada (578 fraudes), 9,7% | `presets.ablation("drift")`, tamanho e semente da configuração final |
+| regra de rótulo por limiar fixo × fraude injetada (cenário 1), dataset final | 13,1% das transações legítimas vêm do regime B; das que o limiar de R$ 220 rotularia (933 997), 13,9%; das vítimas da fraude injetada (527 fraudes), 12,2% | `presets.realistic()` |
 | tempo de `make_figures.py` | simulador 62–100 s; *drift* 31–56 s; fraudes 291–375 s (11 gerações, 10 sementes); comerciantes 150–186 s; estatísticas 30–49 s | configuração final, três execuções |
 | cobertura de testes (suíte rápida) | 97% de 1 753 comandos (antes da remoção do legacy: 97% de 2 220); menores: `utils/data.py` 77%, `ground_truth.py` 93%, `engine/fraud.py` 95% | `pytest --cov=synccfd` |
 | testes | 163 passaram na suíte rápida (2 min 15 s, com cobertura) e 6 na lenta (2 min 40 s), que inclui os quatro notebooks e o do simulador com `ablation:base` | — |
@@ -2098,12 +2117,12 @@ completa, na ordem do cap. 4, está no "Fechamento do [SIM]".
 - A mistura de cenários ainda muda entre as etapas da ablação (o cenário 5 só existe
   a partir de `frauds`, e o 2 cai pela metade em 60% do período); vale reportar as
   métricas também por cenário.
-- A comparação do cenário 1 mudou com os comerciantes: no dataset final, o limiar de
-  R$ 220 tira só 13,9% dos rótulos do regime B (contra 86% na Fase 2, sem
-  comerciantes), porque o valor passa a depender sobretudo da categoria. O argumento
-  da dissertação contra o limiar fixo continua (ele rotula compras legítimas, em
-  qualquer regime), mas o efeito do *drift* sobre ele aparece no modelo base, sem
-  comerciantes.
+- Na etapa `drift`, as vítimas do cenário 1 estão no regime B em 9,7% dos casos,
+  contra 13,1% das transações legítimas (578 fraudes; erro-padrão de cerca de 1,2
+  ponto, sem contar a correlação entre fraudes da mesma vítima). Na Fase 3, a
+  diferença era compatível com o acaso (11,7% contra 13,5%); vale conferir com mais
+  sementes se o quantil do histórico recente atrasa a fraude em quem acabou de mudar
+  para um regime que gasta mais.
 - O mypy 2.x avisa que `python_version = "3.9"` não é mais suportado na configuração;
   a checagem passa nas versões 3.9 a 3.12 do CI.
 
@@ -2228,7 +2247,8 @@ detalhadas estão no "Para o texto" de cada fase; as da Fase 5, na própria fase
 13. `docs/figures/fase3/fraudes_valor_por_cenario.pdf` — valor por cenário.
 14. `docs/figures/fase3/fraudes_cenario1_regime_b.pdf` — regra de rótulo por limiar
     fixo (R$ 220, aplicada aos dados) × fraude injetada do cenário 1: de que regime
-    vêm os rótulos (legenda nova na Fase 5).
+    vêm os rótulos, sem comerciantes (etapa `drift` da ablação: 86,0% do limiar no
+    regime B) e no conjunto completo (13,9%), lado a lado (nova na Fase 5).
 15. `docs/figures/fase3/fraudes_categoria_por_cenario.pdf` — categorias de cada
     cenário.
 16. `docs/figures/fase3/fraudes_cenario3_migracao.pdf` — migração de categoria do
