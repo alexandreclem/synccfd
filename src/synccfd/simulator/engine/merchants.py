@@ -298,8 +298,8 @@ def customer_transactions(
     n = int(counts.sum())
     days = np.repeat(np.arange(nb_days, dtype=np.int64), counts)
 
-    w = w_day[days]
-    is_b = np.zeros(n, dtype=bool)
+    w: np.ndarray = w_day[days]
+    is_b: np.ndarray = np.zeros(n, dtype=bool)
     spending_b, pref_b, cnp_b = spending, preference, customer["cnp_prob"]
     if drifting:
         assert drift is not None and preference_b is not None
