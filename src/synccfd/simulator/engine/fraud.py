@@ -87,8 +87,10 @@ def apply_frauds(
             streams.generator("fraud", 4),
         )
 
+    # Ground-truth columns of the legitimate transactions (drift) are kept as they are
+    ground_truth = tuple(c for c in transactions.columns if c.startswith("GT_"))
     return assemble_transactions(
-        tx, start_date, extra_columns=("TX_FRAUD", "TX_FRAUD_SCENARIO")
+        tx, start_date, extra_columns=("TX_FRAUD", "TX_FRAUD_SCENARIO", *ground_truth)
     )
 
 

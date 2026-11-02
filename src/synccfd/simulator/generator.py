@@ -8,7 +8,7 @@ import pandas as pd
 from synccfd.utils.data import DataManager
 
 from . import engine as v2
-from .config import FraudConfig
+from .config import DriftConfig, FraudConfig, SeasonalityConfig
 from .legacy.fraud import FraudSimulator
 from .legacy.generator import _TransactionGenerator
 from .location.features import LocationFeatures
@@ -39,7 +39,7 @@ class DatasetGenerator:
       statistically, not draw by draw.
 
     ``engine="auto"`` (default) uses ``"legacy"`` unless a component that only the
-    v2 engine supports is enabled (none yet).
+    v2 engine supports is enabled: ``drift`` or ``seasonality``.
 
     Example:
         >>> generator = DatasetGenerator(n_customers=1000, n_terminals=10000)
@@ -57,6 +57,8 @@ class DatasetGenerator:
         start_date: str = "2018-04-01",
         random_state: Optional[int] = 42,
         fraud: Optional[FraudConfig] = None,
+        drift: Optional[DriftConfig] = None,
+        seasonality: Optional[SeasonalityConfig] = None,
         engine: str = "auto",
     ):
         """Initialize DatasetGenerator.
@@ -74,12 +76,18 @@ class DatasetGenerator:
             random_state: Random seed for reproducibility. Defaults to 42.
             fraud: Fraud scenario parameters. Defaults to ``FraudConfig()``, which
                 reproduces v0.1.0.
+            drift: Customer concept drift (v2 engine only). ``None`` (default)
+                disables it.
+            seasonality: Calendar patterns (v2 engine only). ``None`` (default)
+                disables them.
             engine: ``"auto"``, ``"legacy"`` or ``"v2"`` (see the class docstring).
                 Defaults to ``"auto"``.
         """
         if engine not in ENGINES:
             raise ValueError(f"engine must be one of {ENGINES}, got {engine!r}.")
         self.fraud_config = fraud if fraud is not None else FraudConfig()
+        self.drift_config = drift
+        self.seasonality_config = seasonality
         self.engine = self._resolve_engine(engine)
         self.n_customers = n_customers
         self.n_terminals = n_terminals
@@ -116,12 +124,22 @@ class DatasetGenerator:
             random_state=random_state, config=self.fraud_config
         )
 
-    @staticmethod
-    def _resolve_engine(engine: str) -> str:
+    def _resolve_engine(self, engine: str) -> str:
+        v2_only = [
+            name
+            for name, value in (
+                ("drift", self.drift_config),
+                ("seasonality", self.seasonality_config),
+            )
+            if value is not None
+        ]
         if engine == "auto":
-            # No v2-only component exists yet (drift, seasonality and merchants come
-            # in later versions), so "auto" always means the legacy engine.
-            return "legacy"
+            return "v2" if v2_only else "legacy"
+        if engine == "legacy" and v2_only:
+            raise ValueError(
+                f"{', '.join(v2_only)} require(s) the v2 engine; "
+                'use engine="v2" or engine="auto".'
+            )
         return engine
 
     def generate(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -169,6 +187,8 @@ class DatasetGenerator:
                 start_date=datetime.datetime.strptime(self.start_date, "%Y-%m-%d"),
                 random_state=self.random_state,
                 fraud=self.fraud_config,
+                drift=self.drift_config,
+                seasonality=self.seasonality_config,
             )
             customer_profiles = result.customer_profiles
             terminal_profiles = result.terminal_profiles

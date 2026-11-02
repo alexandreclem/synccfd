@@ -20,15 +20,24 @@ Model, per customer and day:
 Deliberate difference from v0.1: a time outside ``[0, 86400]`` is *redrawn*
 instead of the transaction being discarded, so the number of transactions per day
 follows the Poisson parameter exactly.
+
+With concept drift (``drift.py``), the parameters of each day and transaction follow
+the customer's regimes; with seasonality or global drift (``daily_factors.py``), the
+daily rate and the amounts are multiplied by per-day factors. A customer without
+drift and without daily factors draws exactly the same numbers as without these
+components.
 """
 
 import datetime
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
 
 from ..location import sampling
 from ..location.features import LocationFeatures
+from .daily_factors import DailyFactors
+from .drift import NO_DRIFT, CustomerDrift, regime_weight
 
 TRANSACTION_COLUMNS = [
     "TRANSACTION_ID",
@@ -75,6 +84,15 @@ def draw_times_of_day(is_cnp: np.ndarray, rng: np.random.Generator) -> np.ndarra
     return times
 
 
+def _regime_parameter(
+    a: float, b: float, kind: str, is_b: np.ndarray, w: np.ndarray
+) -> np.ndarray:
+    """Per-transaction parameter: interpolated (incremental) or A/B by regime."""
+    if kind == "incremental":
+        return (1.0 - w) * a + w * b
+    return np.where(is_b, b, a)
+
+
 def _customer_transactions(
     customer: dict,
     available: np.ndarray,
@@ -83,32 +101,96 @@ def _customer_transactions(
     terminal_long: np.ndarray,
     loc_features: LocationFeatures,
     rng: np.random.Generator,
+    drift: Optional[CustomerDrift] = None,
+    factors: Optional[DailyFactors] = None,
 ) -> dict[str, np.ndarray]:
-    counts = rng.poisson(customer["mean_nb_tx_per_day"], nb_days)
+    # A customer without drift and without daily factors follows exactly the draws
+    # of the Phase 1 engine (scalar parameters, same calls in the same order).
+    drifting = drift is not None and drift.kind != NO_DRIFT
+
+    lam: Union[float, np.ndarray] = customer["mean_nb_tx_per_day"]
+    if drifting:
+        assert drift is not None
+        w_day = regime_weight(drift, np.arange(nb_days) + 0.5)
+        lam = (1.0 - w_day) * customer[
+            "mean_nb_tx_per_day"
+        ] + w_day * drift.mean_nb_tx_per_day
+    if factors is not None:
+        lam = lam * factors.frequency
+    counts = rng.poisson(lam, nb_days)
     n = int(counts.sum())
     days = np.repeat(np.arange(nb_days, dtype=np.int64), counts)
 
-    mean, std = customer["mean_amount"], customer["std_amount"]
+    mean: Union[float, np.ndarray] = customer["mean_amount"]
+    std: Union[float, np.ndarray] = customer["std_amount"]
+    cnp_prob: Union[float, np.ndarray] = customer["cnp_prob"]
+    w = np.zeros(n)
+    is_b = np.zeros(n, dtype=bool)
+    if drifting:
+        assert drift is not None
+        w = w_day[days]
+        if drift.kind == "gradual":
+            # Mixture of concepts: each transaction comes from B with probability w
+            is_b = rng.random(n) < w
+        elif drift.kind == "incremental":
+            is_b = w >= 0.5  # label only; the parameters are interpolated
+        else:  # sudden, recurrent: w is 0 or 1
+            is_b = w >= 1.0
+        mean = _regime_parameter(
+            customer["mean_amount"], drift.mean_amount, drift.kind, is_b, w
+        )
+        std = _regime_parameter(
+            customer["std_amount"], drift.std_amount, drift.kind, is_b, w
+        )
+        cnp_prob = _regime_parameter(
+            customer["cnp_prob"], drift.cnp_prob, drift.kind, is_b, w
+        )
+
     amounts = rng.normal(mean, std, n)
     negative = amounts < 0
-    amounts[negative] = rng.uniform(0, 2 * mean, int(negative.sum()))
+    upper = 2 * (mean[negative] if isinstance(mean, np.ndarray) else mean)
+    amounts[negative] = rng.uniform(0, upper, int(negative.sum()))
+    if factors is not None:
+        amounts = amounts * factors.amount[days]
     amounts = np.round(amounts, 2)
 
-    if len(available):
-        is_cnp = rng.random(n) < customer["cnp_prob"]
+    relocated = drifting and drift is not None and drift.relocated
+    bill_lat = np.full(n, customer["billing_lat"])
+    bill_long = np.full(n, customer["billing_long"])
+    if not relocated:
+        if len(available):
+            is_cnp = rng.random(n) < cnp_prob
+        else:
+            is_cnp = np.ones(n, dtype=bool)
+        cnp_terminals = rng.integers(0, len(terminal_lat), n)
+        if len(available):
+            cp_terminals = available[rng.integers(0, len(available), n)]
+        else:
+            cp_terminals = cnp_terminals  # unused: every transaction is CNP
     else:
-        is_cnp = np.ones(n, dtype=bool)
-
-    cnp_terminals = rng.integers(0, len(terminal_lat), n)
-    if len(available):
-        cp_terminals = available[rng.integers(0, len(available), n)]
-    else:
-        cp_terminals = cnp_terminals  # unused: every transaction is CNP
+        # Regime B lives elsewhere: billing address and reachable terminals follow
+        # the regime of each transaction.
+        assert drift is not None and drift.available_terminals is not None
+        available_b = drift.available_terminals
+        bill_lat[is_b] = drift.billing_lat
+        bill_long[is_b] = drift.billing_long
+        has_terminal = np.where(is_b, len(available_b) > 0, len(available) > 0)
+        is_cnp = (rng.random(n) < cnp_prob) | ~has_terminal
+        cnp_terminals = rng.integers(0, len(terminal_lat), n)
+        cp_a = (
+            available[rng.integers(0, len(available), n)]
+            if len(available)
+            else cnp_terminals
+        )
+        cp_b = (
+            available_b[rng.integers(0, len(available_b), n)]
+            if len(available_b)
+            else cnp_terminals
+        )
+        cp_terminals = np.where(is_b, cp_b, cp_a)
     terminals = np.where(is_cnp, cnp_terminals, cp_terminals)
     term_lat, term_long = terminal_lat[terminals], terminal_long[terminals]
 
-    bill_lat = np.full(n, customer["billing_lat"])
-    bill_long = np.full(n, customer["billing_long"])
     u = rng.random(n)
     at_terminal = ~is_cnp & (u < CP_SHIPPING_PROBS[0])
     at_billing = np.where(
@@ -132,7 +214,7 @@ def _customer_transactions(
 
     seconds = draw_times_of_day(is_cnp, rng) + days * SECONDS_PER_DAY
 
-    return {
+    columns = {
         "TX_TIME_SECONDS": seconds,
         "TX_TIME_DAYS": days,
         "CUSTOMER_ID": np.full(n, customer["CUSTOMER_ID"], dtype=np.int64),
@@ -146,6 +228,12 @@ def _customer_transactions(
         "TX_TERM_LAT": term_lat,
         "TX_TERM_LONG": term_long,
     }
+    if drift is not None:
+        columns["GT_REGIME_WEIGHT"] = w
+        columns["GT_IS_B"] = is_b
+    if factors is not None:
+        columns["GT_SHOCK"] = factors.shock[days]
+    return columns
 
 
 def generate_transactions(
@@ -155,13 +243,24 @@ def generate_transactions(
     nb_days: int,
     start_date: datetime.datetime,
     customer_rngs: list[np.random.Generator],
+    drifts: Optional[list[CustomerDrift]] = None,
+    factors: Optional[DailyFactors] = None,
+    shock_column: bool = False,
 ) -> pd.DataFrame:
     """Legitimate transactions of all customers, in chronological order.
 
-    ``customer_rngs[i]`` is the random stream of the i-th customer.
+    ``customer_rngs[i]`` is the random stream of the i-th customer. With ``drifts``
+    (one per customer), the transactions follow each customer's regimes and get the
+    ground-truth columns ``GT_REGIME_WEIGHT`` (``w`` on the transaction's day) and
+    ``GT_REGIME`` (``"A"``/``"B"``; for incremental drift, ``"B"`` once ``w >= 0.5``).
+    ``factors`` applies seasonality and global drift; with ``shock_column``, the
+    column ``GT_SHOCK`` flags transactions on global-shock days.
     """
     terminal_lat = terminal_profiles["terminal_lat"].to_numpy()
     terminal_long = terminal_profiles["terminal_long"].to_numpy()
+    per_customer_drift: list[Optional[CustomerDrift]] = (
+        list(drifts) if drifts is not None else [None] * len(customer_profiles)
+    )
     parts = [
         _customer_transactions(
             customer,
@@ -171,15 +270,27 @@ def generate_transactions(
             terminal_long,
             loc_features,
             rng,
+            drift=drift if drifts is not None else None,
+            factors=factors,
         )
-        for customer, available, rng in zip(
+        for customer, available, rng, drift in zip(
             customer_profiles.to_dict("records"),
             customer_profiles["available_terminals"],
             customer_rngs,
+            per_customer_drift,
         )
     ]
     columns = {key: np.concatenate([p[key] for p in parts]) for key in parts[0]}
-    return assemble_transactions(columns, start_date)
+
+    extra: list[str] = []
+    if drifts is not None:
+        columns["GT_REGIME"] = np.where(columns.pop("GT_IS_B"), "B", "A")
+        extra += ["GT_REGIME_WEIGHT", "GT_REGIME"]
+    if shock_column:
+        extra.append("GT_SHOCK")
+    else:
+        columns.pop("GT_SHOCK", None)
+    return assemble_transactions(columns, start_date, extra_columns=tuple(extra))
 
 
 def assemble_transactions(
