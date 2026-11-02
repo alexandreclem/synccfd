@@ -4,9 +4,31 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] — Unreleased
+
+Every v0.2 component is optional: without them, the v2 engine reproduces the v0.1
+model, and the legacy engine reproduces v0.1.0 exactly.
 
 ### Added
+- **Presets** (`synccfd.simulator.presets`): `legacy()` (v0.1, exactly),
+  `realistic()` (merchants, customer drift, seasonality and fraud injection, with
+  10 000 customers, 20 000 terminals, 180 days and `random_state=42`) and
+  `ablation(step)` (the components switched on cumulatively, on the v2 engine);
+  `get(name)` and `from_env()`.
+- `DatasetGenerator.generate_all()`, returning a `SimulationResult` (customers,
+  terminals, merchants, transactions and the configuration), and
+  `DatasetGenerator.config`, the effective configuration as JSON types. `save()`
+  writes it to `config.json`, with the version of `synccfd`.
+- Documentation: presets, output schema, one page per component (drift and
+  seasonality, frauds, merchants), architecture (with diagrams) and software
+  engineering (tests, CI, release process).
+- `scripts/make_figures.py`: runs the four example notebooks on the same dataset,
+  regenerates every figure under `docs/figures/`, draws the architecture diagrams
+  (`scripts/diagrams.py`) and writes `docs/figures/dataset_stats.json`.
+- `examples/simulator.ipynb` chooses the preset (`legacy` or `realistic`) and the
+  size, and saves the figures of the TCC, in the same order and with the same
+  names, to `docs/figures/exploratoria/` (now with scenario 5 and, with merchants,
+  the fraud rate per category).
 - **Merchants and categories** (`MerchantConfig`, v2 engine). Terminals belong to
   physical merchants; online merchants have virtual terminals. Ten default
   categories (`DEFAULT_CATEGORIES`) set the amount, the hour (CP only in opening
@@ -78,6 +100,8 @@ All notable changes to this project are documented here. The format is based on
 - `mypy src` now passes (annotation-only changes, no behaviour change).
 
 ### Changed
+- The example notebooks generate the same dataset, `presets.realistic()` (sizes
+  through the `SYNCCFD_*` variables), and their figures use it.
 - CI: `mypy` failures now fail the build; slow end-to-end tests are excluded from the
   default `pytest` run and run in a separate CI job (`pytest -m slow`).
 - The v0.1 code moved to `synccfd.simulator.legacy` (logic unchanged).

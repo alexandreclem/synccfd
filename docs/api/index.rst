@@ -1,15 +1,26 @@
 API Reference
-============
+=============
 
 This section provides detailed API documentation for all public modules and classes in SynCCFD.
 
 Simulator
---------
+---------
 
 .. automodule:: synccfd.simulator.generator
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. automodule:: synccfd.simulator.presets
+   :members:
+   :show-inheritance:
+
+.. automodule:: synccfd.simulator.config
+   :members:
+   :show-inheritance:
+
+.. automodule:: synccfd.simulator.ground_truth
+   :members:
 
 .. automodule:: synccfd.simulator.fraud
    :members:
@@ -22,7 +33,7 @@ Simulator
    :show-inheritance:
 
 Utilities
---------
+---------
 
 .. automodule:: synccfd.utils.data
    :members:

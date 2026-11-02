@@ -1,19 +1,48 @@
 """Public entry point: ``DatasetGenerator`` chooses the legacy or the v2 engine."""
 
 import datetime
-from typing import Optional
+import json
+import os
+from dataclasses import dataclass
+from typing import Any, Optional
 
 import pandas as pd
 
 from synccfd.utils.data import DataManager
 
 from . import engine as v2
-from .config import DriftConfig, FraudConfig, MerchantConfig, SeasonalityConfig
+from .config import (
+    DriftConfig,
+    FraudConfig,
+    MerchantConfig,
+    SeasonalityConfig,
+    to_jsonable,
+)
 from .legacy.fraud import FraudSimulator
 from .legacy.generator import _TransactionGenerator
 from .location.features import LocationFeatures
 
 ENGINES = ("auto", "legacy", "v2")
+
+
+@dataclass
+class SimulationResult:
+    """Everything one simulation produces (:meth:`DatasetGenerator.generate_all`).
+
+    Attributes:
+        customers: Customer profiles.
+        terminals: Terminal profiles.
+        merchants: Merchant profiles, or ``None`` without merchants.
+        transactions: Labelled transactions.
+        config: The effective configuration, JSON-serialisable (also written to
+            ``config.json`` by :meth:`DatasetGenerator.save`).
+    """
+
+    customers: pd.DataFrame
+    terminals: pd.DataFrame
+    merchants: Optional[pd.DataFrame]
+    transactions: pd.DataFrame
+    config: dict[str, Any]
 
 
 class DatasetGenerator:
@@ -159,6 +188,40 @@ class DatasetGenerator:
             )
         return engine
 
+    @property
+    def config(self) -> dict[str, Any]:
+        """The effective configuration as plain JSON types, with the version of
+        ``synccfd`` (written to ``config.json`` by :meth:`save`)."""
+        from synccfd import __version__
+
+        return {
+            "synccfd_version": __version__,
+            "engine": self.engine,
+            "n_customers": self.n_customers,
+            "n_terminals": self.n_terminals,
+            "nb_days": self.nb_days,
+            "city_radius": self.city_radius,
+            "available_terminals_radius": self.available_terminals_radius,
+            "start_date": self.start_date,
+            "random_state": self.random_state,
+            "fraud": to_jsonable(self.fraud_config),
+            "drift": to_jsonable(self.drift_config),
+            "seasonality": to_jsonable(self.seasonality_config),
+            "merchants": to_jsonable(self.merchant_config),
+        }
+
+    def generate_all(self) -> SimulationResult:
+        """Generate the dataset, like :meth:`generate`, and return everything in a
+        :class:`SimulationResult` (with the merchants and the configuration)."""
+        customers, terminals, transactions = self.generate()
+        return SimulationResult(
+            customers=customers,
+            terminals=terminals,
+            merchants=self.merchant_profiles,
+            transactions=transactions,
+            config=self.config,
+        )
+
     def generate(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Generate the complete dataset (profiles + labelled transactions).
 
@@ -244,9 +307,9 @@ class DatasetGenerator:
     ) -> None:
         """Persist the most recently generated dataset to disk.
 
-        Writes customer/terminal (and, with merchants, merchant) profiles and
-        (day-partitioned) transactions under ``output_dir``. Call :meth:`generate`
-        first.
+        Writes customer/terminal (and, with merchants, merchant) profiles,
+        (day-partitioned) transactions and the configuration (``config.json``, see
+        :attr:`config`) under ``output_dir``. Call :meth:`generate` first.
 
         Args:
             output_dir: Base directory to write the dataset into. Defaults to 'data'.
@@ -268,6 +331,8 @@ class DatasetGenerator:
             save_format=save_format,
             save_by_day=save_by_day,
         )
+        with open(os.path.join(output_dir, "config.json"), "w", encoding="utf-8") as f:
+            json.dump(self.config, f, indent=2, ensure_ascii=False)
         print(f"Dataset saved to '{output_dir}'.")
 
     def read_transactions(

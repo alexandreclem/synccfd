@@ -83,6 +83,31 @@ txs = generator.read_transactions(
 See [`examples/simulator.ipynb`](examples/simulator.ipynb) for a full walkthrough
 with plots.
 
+## Presets
+
+`synccfd.simulator.presets` returns ready arguments for `DatasetGenerator`; any of
+them can be overridden:
+
+```python
+from synccfd import DatasetGenerator
+from synccfd.simulator import presets
+
+# Every v0.2 component: merchants, customer drift, seasonality and fraud injection
+generator = DatasetGenerator(**presets.realistic(n_customers=1_000))
+# customers, terminals, merchants, transactions and the configuration
+result = generator.generate_all()
+generator.save(output_dir="data", save_format="parquet")  # also writes config.json
+```
+
+| Preset | What it sets |
+| --- | --- |
+| `legacy()` | The v0.1 engine and model; with no arguments, exactly `DatasetGenerator()` of v0.1 |
+| `realistic()` | The v2 engine with `MerchantConfig()`, `DriftConfig()`, `SeasonalityConfig()` and `FraudConfig.realistic()`, 10 000 customers, 20 000 terminals, 180 days from 2023-01-01, `random_state=42` |
+| `ablation(step)` | The components switched on cumulatively, always on the v2 engine: `"base"` (the v0.1 model), `"drift"` (+ drift and seasonality), `"frauds"` (fraud injection instead), `"merchants"` (+ merchants, same as `realistic()`) |
+
+`save()` writes `config.json` next to the data: the version of `synccfd`, the
+engine, the size, the seed and every configuration object.
+
 ## Output schema
 
 **`transactions`**
@@ -99,12 +124,23 @@ with plots.
 | `TX_TERM_LAT`, `TX_TERM_LONG` | Terminal location |
 | `TX_SHIPP_LAT`, `TX_SHIPP_LONG` | Shipping / delivery location |
 | `TX_FRAUD` | Binary fraud label (0 = genuine, 1 = fraud) |
-| `TX_FRAUD_SCENARIO` | 0 = genuine, 1–4 = fraud scenario (see below; 5 with fraud injection) |
+| `TX_FRAUD_SCENARIO` | Ground truth: 0 = genuine, 1–4 = fraud scenario (see below; 5 with fraud injection) |
+| `MERCHANT_ID`, `MERCHANT_CATEGORY` | Merchant and its category (with merchants; observable, like an MCC) |
+| `GT_REGIME`, `GT_REGIME_WEIGHT`, `GT_SHOCK` | Ground truth of drift: regime (`A`/`B`) of a legitimate transaction, weight of regime B on its day, global shock |
+| `GT_FRAUD_SCENARIO`, `GT_FRAUDSTER_ID`, `GT_CAMPAIGN_ID`, `GT_COMPROMISE_ID` | Ground truth of fraud injection: scenario, fraudster, attack, compromised card |
 
 **`customer_profiles`**: `CUSTOMER_ID`, `billing_lat`, `billing_long`,
-`mean_amount`, `std_amount`, `mean_nb_tx_per_day`, `cnp_prob`.
+`mean_amount`, `std_amount`, `mean_nb_tx_per_day`, `cnp_prob`,
+`available_terminals`. With merchants, `spending_factor` and `pref_<category>`.
+With drift, `GT_DRIFT_*`, `GT_B_*` and `GT_RELOCATED`.
 
-**`terminal_profiles`**: `TERMINAL_ID`, `terminal_lat`, `terminal_long`.
+**`terminal_profiles`**: `TERMINAL_ID`, `terminal_lat`, `terminal_long`; with
+merchants, `MERCHANT_ID`.
+
+**`merchant_profiles`** (with merchants): `MERCHANT_ID`, `MERCHANT_CATEGORY`,
+`channel`, `n_terminals`, `lat`, `long`.
+
+The columns of each component are described in its section below.
 
 > **Ground truth is not a feature.** Columns starting with `GT_` (and
 > `TX_FRAUD_SCENARIO`) describe how the data was generated: drift regimes, fraud
@@ -175,7 +211,7 @@ terminals). In this mode `random_state` controls the daily counts.
 | --- | --- |
 | `"legacy"` | The v0.1.0 code, unchanged. With the default configuration it reproduces v0.1.0 exactly. |
 | `"v2"` | A vectorised engine with the same model, much faster. It uses only local random streams derived from `random_state`, never the global `random`/`numpy.random` state. It reproduces the v0.1 model statistically, not draw by draw. |
-| `"auto"` (default) | `"legacy"`, unless a component that only v2 supports is enabled: drift, seasonality or fraud injection. |
+| `"auto"` (default) | `"legacy"`, unless a component that only v2 supports is enabled: drift, seasonality, merchants or fraud injection. |
 
 ```python
 generator = DatasetGenerator(n_customers=10_000, nb_days=180, engine="v2")

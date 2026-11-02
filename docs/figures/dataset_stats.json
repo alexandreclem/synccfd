@@ -1,0 +1,772 @@
+{
+  "synccfd_version": "0.2.0",
+  "preset": "realistic",
+  "config": {
+    "synccfd_version": "0.2.0",
+    "engine": "v2",
+    "n_customers": 10000,
+    "n_terminals": 20000,
+    "nb_days": 180,
+    "city_radius": 12.0,
+    "available_terminals_radius": 10.0,
+    "start_date": "2023-01-01",
+    "random_state": 42,
+    "fraud": {
+      "type": "FraudConfig",
+      "scenarios": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "rate_mode": "proportional",
+      "mechanism": "inject",
+      "s1_amount_threshold": 220.0,
+      "s2_terminals_per_day": 2,
+      "s2_terminal_fraction_per_day": 0.0001,
+      "s2_duration_days": 28,
+      "s3_customers_per_day": 3,
+      "s4_customers_per_day": 3,
+      "s3_customer_fraction_per_day": 0.0003,
+      "s4_customer_fraction_per_day": 0.0003,
+      "s3_duration_days": 14,
+      "s4_duration_days": 5,
+      "s3_tamper_fraction": 0.3333333333333333,
+      "amount_multiplier": 5.0,
+      "s4_cnp_prob": 0.5,
+      "s1_customers_per_day": 3,
+      "s1_customer_fraction_per_day": 0.0003,
+      "s5_customers_per_day": 2,
+      "s5_customer_fraction_per_day": 0.0002,
+      "history_days": 30,
+      "min_history_tx": 5,
+      "s1_quantile": 0.95,
+      "s1_amount_factor": 2.0,
+      "s1_amount_spread": 0.5,
+      "s2_clone_prob": 0.2,
+      "s2_leak_prob": 0.05,
+      "s2_use_delay_days_range": [
+        1,
+        14
+      ],
+      "s3_mean_bursts": 3.0,
+      "s3_burst_size_range": [
+        2,
+        5
+      ],
+      "s3_burst_hours": 3.0,
+      "s3_amount_factor": 2.0,
+      "s4_max_txs": 10,
+      "s4_block_prob_per_tx": 0.15,
+      "s4_spending_limit": 2000.0,
+      "s4_mean_gap_minutes": 20.0,
+      "s4_amount_factor": 3.0,
+      "s4_cnp_attempt_prob": 0.2,
+      "s5_n_tests_range": [
+        3,
+        10
+      ],
+      "s5_amount_range": [
+        1.0,
+        5.0
+      ],
+      "s5_mean_gap_seconds": 60.0,
+      "s5_escalate_prob": 0.5,
+      "s5_escalation_delay_hours_range": [
+        1.0,
+        72.0
+      ],
+      "night_prob": 0.5,
+      "amount_log_sigma": 0.3,
+      "intensity_schedule": {
+        "2": {
+          "type": "IntensitySchedule",
+          "kind": "step",
+          "start": 0.6,
+          "end": 1.0,
+          "base": 1.0,
+          "level": 0.5
+        },
+        "5": {
+          "type": "IntensitySchedule",
+          "kind": "step",
+          "start": 0.3,
+          "end": 1.0,
+          "base": 0.0,
+          "level": 1.0
+        }
+      },
+      "s1_categories": [
+        "eletronicos",
+        "viagem_turismo"
+      ],
+      "s3_category_schedule": [
+        [
+          0.0,
+          [
+            "eletronicos",
+            "ecommerce_marketplace"
+          ]
+        ],
+        [
+          0.5,
+          [
+            "servicos_digitais",
+            "ecommerce_marketplace"
+          ]
+        ]
+      ],
+      "s4_categories": [
+        "eletronicos",
+        "posto_combustivel",
+        "farmacia",
+        "supermercado"
+      ],
+      "s5_categories": [
+        "servicos_digitais"
+      ]
+    },
+    "drift": {
+      "type": "DriftConfig",
+      "customer_fraction": 0.3,
+      "type_weights": {
+        "sudden": 0.3,
+        "gradual": 0.3,
+        "incremental": 0.2,
+        "recurrent": 0.2
+      },
+      "start_day_range": [
+        0.2,
+        0.8
+      ],
+      "transition_days_range": [
+        7,
+        30
+      ],
+      "recurrent_period_days_range": [
+        30,
+        90
+      ],
+      "recurrent_active_days_range": [
+        5,
+        15
+      ],
+      "amount_log_mu": 0.0,
+      "amount_log_sigma": 0.5,
+      "frequency_log_sigma": 0.4,
+      "cnp_logit_sigma": 1.0,
+      "category_shift_range": [
+        0.3,
+        0.8
+      ],
+      "relocation_prob": 0.05,
+      "global_drift": null
+    },
+    "seasonality": {
+      "type": "SeasonalityConfig",
+      "weekday_frequency": [
+        0.95,
+        0.95,
+        1.0,
+        1.0,
+        1.1,
+        1.15,
+        0.85
+      ],
+      "payday_days": [
+        5,
+        20
+      ],
+      "payday_last_business_day": true,
+      "payday_frequency_multiplier": 1.3,
+      "december_frequency_multiplier": 1.2,
+      "december_amount_multiplier": 1.15
+    },
+    "merchants": {
+      "type": "MerchantConfig",
+      "categories": [
+        {
+          "type": "MerchantCategory",
+          "name": "supermercado",
+          "channel": "CP+CNP",
+          "median_amount": 120,
+          "log_sigma": 0.7,
+          "weight": 0.2,
+          "hourly_profile": [
+            0.007936091752875928,
+            0.005799604396631579,
+            0.005154139699823314,
+            0.005310106871264658,
+            0.006337025358815014,
+            0.008913926884775917,
+            0.014054431260350735,
+            0.02243460504860734,
+            0.03339644960719921,
+            0.04440856418722792,
+            0.05200155493969235,
+            0.054165592422984576,
+            0.052506127491109306,
+            0.05199737523151394,
+            0.05782789721631382,
+            0.07127275268065805,
+            0.08771177032657322,
+            0.09879602669903231,
+            0.09771400795738619,
+            0.08366298867463254,
+            0.06197228986850068,
+            0.04013125113246058,
+            0.02338821452136029,
+            0.013107205770210652
+          ],
+          "opening_hours": [
+            8,
+            21
+          ],
+          "weekend_factor": 1.2,
+          "skimming_risk": 1.0,
+          "online_fraction": 0.1
+        },
+        {
+          "type": "MerchantCategory",
+          "name": "restaurante_bar",
+          "channel": "CP",
+          "median_amount": 60,
+          "log_sigma": 0.6,
+          "weight": 0.15,
+          "hourly_profile": [
+            0.015442633858776925,
+            0.008154884828375692,
+            0.006177366012140434,
+            0.0057936517242489416,
+            0.0057399113367564945,
+            0.005734452747109617,
+            0.005734470837564283,
+            0.005753500815931775,
+            0.006177366037755715,
+            0.010772727311685154,
+            0.03432985795179287,
+            0.08677316499153681,
+            0.1204203251265097,
+            0.08683236865081943,
+            0.034773180500496846,
+            0.013193590558086438,
+            0.015885979180148835,
+            0.03434931441308231,
+            0.06759392421002379,
+            0.10401478352126398,
+            0.12041443453175239,
+            0.10401477883912069,
+            0.06759349683589595,
+            0.03432983517912495
+          ],
+          "opening_hours": [
+            11,
+            24
+          ],
+          "weekend_factor": 1.4,
+          "skimming_risk": 2.0,
+          "online_fraction": 0.5
+        },
+        {
+          "type": "MerchantCategory",
+          "name": "posto_combustivel",
+          "channel": "CP",
+          "median_amount": 150,
+          "log_sigma": 0.4,
+          "weight": 0.1,
+          "hourly_profile": [
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664,
+            0.041666666666666664
+          ],
+          "opening_hours": [
+            6,
+            23
+          ],
+          "weekend_factor": 1.0,
+          "skimming_risk": 3.0,
+          "online_fraction": 0.5
+        },
+        {
+          "type": "MerchantCategory",
+          "name": "farmacia",
+          "channel": "CP+CNP",
+          "median_amount": 70,
+          "log_sigma": 0.6,
+          "weight": 0.08,
+          "hourly_profile": [
+            0.00978446821001195,
+            0.007311950062012829,
+            0.005896155452712971,
+            0.005896155452712971,
+            0.007311950062012829,
+            0.00978446821001195,
+            0.013801535990971626,
+            0.019858842544859954,
+            0.028307870269513303,
+            0.03915652016459031,
+            0.05188296707577628,
+            0.06535109255833421,
+            0.07790780463022912,
+            0.08768670247636916,
+            0.09305409056461832,
+            0.09305409056461832,
+            0.08768670247636916,
+            0.07790780463022912,
+            0.06535109255833421,
+            0.05188296707577628,
+            0.03915652016459031,
+            0.028307870269513303,
+            0.019858842544859954,
+            0.013801535990971626
+          ],
+          "opening_hours": [
+            8,
+            22
+          ],
+          "weekend_factor": 1.0,
+          "skimming_risk": 1.0,
+          "online_fraction": 0.15
+        },
+        {
+          "type": "MerchantCategory",
+          "name": "vestuario",
+          "channel": "CP+CNP",
+          "median_amount": 180,
+          "log_sigma": 0.7,
+          "weight": 0.08,
+          "hourly_profile": [
+            0.007110195299268296,
+            0.006794532892882297,
+            0.006716310272681612,
+            0.006699926693391774,
+            0.006699926693391774,
+            0.006716310272681612,
+            0.006794532892882297,
+            0.007110195299268296,
+            0.008184355123081398,
+            0.011256513045646151,
+            0.01860583409922224,
+            0.03320118317734944,
+            0.05696210489415366,
+            0.08792944366082786,
+            0.11856463369580962,
+            0.13797496714568566,
+            0.13797496714568566,
+            0.11856463369580962,
+            0.08792944366082786,
+            0.05696210489415366,
+            0.03320118317734944,
+            0.01860583409922224,
+            0.011256513045646151,
+            0.008184355123081398
+          ],
+          "opening_hours": [
+            10,
+            22
+          ],
+          "weekend_factor": 1.3,
+          "skimming_risk": 1.0,
+          "online_fraction": 0.3
+        },
+        {
+          "type": "MerchantCategory",
+          "name": "eletronicos",
+          "channel": "CP+CNP",
+          "median_amount": 900,
+          "log_sigma": 0.8,
+          "weight": 0.04,
+          "hourly_profile": [
+            0.007805888949131767,
+            0.006496401575233346,
+            0.0059851854881867676,
+            0.0058082119041487305,
+            0.0058082119041487305,
+            0.0059851854881867676,
+            0.006496401575233346,
+            0.007805888949131767,
+            0.010773270756671659,
+            0.016702262306841405,
+            0.027096963665263013,
+            0.042967470991631715,
+            0.0638040225345017,
+            0.08677712216592173,
+            0.10694453420819591,
+            0.1188386654542722,
+            0.1188386654542722,
+            0.10694453420819591,
+            0.08677712216592173,
+            0.0638040225345017,
+            0.042967470991631715,
+            0.027096963665263013,
+            0.016702262306841405,
+            0.010773270756671659
+          ],
+          "opening_hours": [
+            10,
+            22
+          ],
+          "weekend_factor": 1.1,
+          "skimming_risk": 1.0,
+          "online_fraction": 0.5
+        },
+        {
+          "type": "MerchantCategory",
+          "name": "viagem_turismo",
+          "channel": "CNP",
+          "median_amount": 1200,
+          "log_sigma": 0.7,
+          "weight": 0.03,
+          "hourly_profile": [
+            0.007594115394207727,
+            0.00495173169898294,
+            0.003438669966987749,
+            0.003438669966987749,
+            0.00495173169898294,
+            0.007594115394207727,
+            0.011887161500102043,
+            0.018360613712343783,
+            0.027390101774218314,
+            0.03898406949540641,
+            0.05258484158416747,
+            0.0669782466271808,
+            0.08039762284945763,
+            0.09084834501981656,
+            0.09658448037712855,
+            0.09658448037712855,
+            0.09084834501981656,
+            0.08039762284945763,
+            0.0669782466271808,
+            0.05258484158416747,
+            0.03898406949540641,
+            0.027390101774218314,
+            0.018360613712343783,
+            0.011887161500102043
+          ],
+          "opening_hours": [
+            0,
+            24
+          ],
+          "weekend_factor": 1.0,
+          "skimming_risk": 1.0,
+          "online_fraction": 0.5
+        },
+        {
+          "type": "MerchantCategory",
+          "name": "ecommerce_marketplace",
+          "channel": "CNP",
+          "median_amount": 150,
+          "log_sigma": 0.9,
+          "weight": 0.15,
+          "hourly_profile": [
+            0.021254327001217578,
+            0.00900992588792643,
+            0.00617744237034213,
+            0.005774632132645019,
+            0.005774632132645019,
+            0.00617744237034213,
+            0.00900992588792643,
+            0.021254327001217575,
+            0.0528805482895616,
+            0.0975629174121374,
+            0.12041443450319908,
+            0.09756291743775133,
+            0.0528805500359011,
+            0.021254403333967067,
+            0.009012064590387578,
+            0.006215837004963698,
+            0.006215837004963698,
+            0.009012064590387578,
+            0.021254403333967067,
+            0.05288055003590111,
+            0.09756291743775133,
+            0.12041443450319908,
+            0.0975629174121374,
+            0.0528805482895616
+          ],
+          "opening_hours": [
+            0,
+            24
+          ],
+          "weekend_factor": 1.1,
+          "skimming_risk": 1.0,
+          "online_fraction": 0.5
+        },
+        {
+          "type": "MerchantCategory",
+          "name": "servicos_digitais",
+          "channel": "CNP",
+          "median_amount": 35,
+          "log_sigma": 0.5,
+          "weight": 0.1,
+          "hourly_profile": [
+            0.07704056601426942,
+            0.05902593714230598,
+            0.04268670782459734,
+            0.030241661048963926,
+            0.022090532546010372,
+            0.017441243417640667,
+            0.015114335736835781,
+            0.014087485662976419,
+            0.013686609497840832,
+            0.013547833560429838,
+            0.013547833560429838,
+            0.013686609497840832,
+            0.014087485662976419,
+            0.015114335736835781,
+            0.017441243417640667,
+            0.022090532546010372,
+            0.030241661048963926,
+            0.04268670782459734,
+            0.05902593714230598,
+            0.07704056601426942,
+            0.09285508164683312,
+            0.10218200590129624,
+            0.10218200590129624,
+            0.09285508164683312
+          ],
+          "opening_hours": [
+            0,
+            24
+          ],
+          "weekend_factor": 1.0,
+          "skimming_risk": 1.0,
+          "online_fraction": 0.5
+        },
+        {
+          "type": "MerchantCategory",
+          "name": "transporte_app",
+          "channel": "CNP",
+          "median_amount": 25,
+          "log_sigma": 0.5,
+          "weight": 0.07,
+          "hourly_profile": [
+            0.006317284232155884,
+            0.006277577890901145,
+            0.006278709548222299,
+            0.006386107368375912,
+            0.008059190114665014,
+            0.020602898553881414,
+            0.06373493579811844,
+            0.12134386722606336,
+            0.12134386725383263,
+            0.06373493770953476,
+            0.0206029821184784,
+            0.008061532545458593,
+            0.006428207238096302,
+            0.006763813035725462,
+            0.009860309780465272,
+            0.023260253219535978,
+            0.05787127125615414,
+            0.10677064139072037,
+            0.131778822790534,
+            0.10677064139071729,
+            0.05787127125455607,
+            0.023260252806162868,
+            0.009860256386038154,
+            0.0067603690916062985
+          ],
+          "opening_hours": [
+            0,
+            24
+          ],
+          "weekend_factor": 0.7,
+          "skimming_risk": 1.0,
+          "online_fraction": 0.5
+        }
+      ],
+      "extra_terminals_mean": 0.5,
+      "cnp_merchants_per_category": 20,
+      "cnp_popularity_exponent": 1.0,
+      "preference_concentration": 10.0,
+      "spending_factor_sigma": 0.5,
+      "loyalty": 0.6,
+      "n_favorites": 2
+    }
+  },
+  "dataset": {
+    "customers": 10000,
+    "terminals": 20160,
+    "transactions": 3735430,
+    "legitimate_transactions": 3722147,
+    "fraudulent_transactions": 13283,
+    "fraud_rate_pct": 0.3556,
+    "cp_share_pct": 43.0033,
+    "customers_with_fraud": 1920,
+    "customers_with_fraud_pct": 19.2,
+    "customers_without_reachable_terminal_pct": 7.15
+  },
+  "fraud_by_scenario": {
+    "1": {
+      "transactions": 527,
+      "rate_pct": 0.0141,
+      "share_of_frauds_pct": 3.9675,
+      "victims": 515,
+      "cp_share_pct": 14.8008,
+      "median_amount": 1602.03,
+      "campaigns": 527
+    },
+    "2": {
+      "transactions": 1165,
+      "rate_pct": 0.0312,
+      "share_of_frauds_pct": 8.7706,
+      "victims": 233,
+      "cp_share_pct": 100.0,
+      "median_amount": 121.87,
+      "campaigns": 235
+    },
+    "3": {
+      "transactions": 7274,
+      "rate_pct": 0.1947,
+      "share_of_frauds_pct": 54.7617,
+      "victims": 697,
+      "cp_share_pct": 0.0,
+      "median_amount": 272.94,
+      "campaigns": 720
+    },
+    "4": {
+      "transactions": 2623,
+      "rate_pct": 0.0702,
+      "share_of_frauds_pct": 19.747,
+      "victims": 534,
+      "cp_share_pct": 69.9581,
+      "median_amount": 116.08,
+      "campaigns": 547
+    },
+    "5": {
+      "transactions": 1694,
+      "rate_pct": 0.0453,
+      "share_of_frauds_pct": 12.7531,
+      "victims": 252,
+      "cp_share_pct": 0.0,
+      "median_amount": 3.03,
+      "campaigns": 256
+    }
+  },
+  "drift": {
+    "customers_by_type": {
+      "none": {
+        "customers": 7000,
+        "pct": 70.0
+      },
+      "sudden": {
+        "customers": 921,
+        "pct": 9.21
+      },
+      "gradual": {
+        "customers": 894,
+        "pct": 8.94
+      },
+      "incremental": {
+        "customers": 614,
+        "pct": 6.14
+      },
+      "recurrent": {
+        "customers": 571,
+        "pct": 5.71
+      }
+    },
+    "customers_with_drift_pct": 30.0,
+    "relocated_customers": 141,
+    "legitimate_transactions_in_regime_b_pct": 13.1175
+  },
+  "merchants": {
+    "merchants": 14165,
+    "physical": 14005,
+    "online": 160,
+    "by_category": {
+      "supermercado": {
+        "physical_merchants": 4241,
+        "online_merchants": 20,
+        "transactions_pct": 22.2019,
+        "cp_share_pct": 67.4926,
+        "frauds_pct": 14.7406
+      },
+      "restaurante_bar": {
+        "physical_merchants": 3274,
+        "online_merchants": 0,
+        "transactions_pct": 11.9893,
+        "cp_share_pct": 100.0,
+        "frauds_pct": 0.0
+      },
+      "posto_combustivel": {
+        "physical_merchants": 2185,
+        "online_merchants": 0,
+        "transactions_pct": 6.682,
+        "cp_share_pct": 100.0,
+        "frauds_pct": 5.6011
+      },
+      "farmacia": {
+        "physical_merchants": 1724,
+        "online_merchants": 20,
+        "transactions_pct": 8.526,
+        "cp_share_pct": 51.4943,
+        "frauds_pct": 6.6325
+      },
+      "vestuario": {
+        "physical_merchants": 1730,
+        "online_merchants": 20,
+        "transactions_pct": 8.9674,
+        "cp_share_pct": 42.9031,
+        "frauds_pct": 0.0
+      },
+      "eletronicos": {
+        "physical_merchants": 851,
+        "online_merchants": 20,
+        "transactions_pct": 4.4244,
+        "cp_share_pct": 25.079,
+        "frauds_pct": 8.5598
+      },
+      "viagem_turismo": {
+        "physical_merchants": 0,
+        "online_merchants": 20,
+        "transactions_pct": 3.1279,
+        "cp_share_pct": 0.0,
+        "frauds_pct": 1.7617
+      },
+      "ecommerce_marketplace": {
+        "physical_merchants": 0,
+        "online_merchants": 20,
+        "transactions_pct": 16.3536,
+        "cp_share_pct": 0.0,
+        "frauds_pct": 36.9721
+      },
+      "servicos_digitais": {
+        "physical_merchants": 0,
+        "online_merchants": 20,
+        "transactions_pct": 10.879,
+        "cp_share_pct": 0.0,
+        "frauds_pct": 25.7321
+      },
+      "transporte_app": {
+        "physical_merchants": 0,
+        "online_merchants": 20,
+        "transactions_pct": 6.8484,
+        "cp_share_pct": 0.0,
+        "frauds_pct": 0.0
+      }
+    }
+  }
+}

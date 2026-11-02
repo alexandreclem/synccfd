@@ -2,7 +2,7 @@ Installation
 ============
 
 Prerequisites
-------------
+-------------
 
 SynCCFD requires Python 3.9 or later. The package has the following core dependencies:
 
@@ -14,7 +14,7 @@ SynCCFD requires Python 3.9 or later. The package has the following core depende
 * haversine>=2.3.0
 
 Basic Installation
-----------------
+------------------
 
 You can install SynCCFD using pip:
 
@@ -23,7 +23,7 @@ You can install SynCCFD using pip:
     pip install synccfd
 
 Development Installation
-----------------------
+------------------------
 
 For development, you can install the package with additional dependencies:
 

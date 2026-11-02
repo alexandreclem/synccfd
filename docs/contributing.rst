@@ -10,7 +10,7 @@ We love your input! We want to make contributing to SynCCFD as easy and transpar
 - Becoming a maintainer
 
 Development Process
------------------
+-------------------
 
 We use GitHub to host code, to track issues and feature requests, as well as accept pull requests.
 
@@ -22,7 +22,7 @@ We use GitHub to host code, to track issues and feature requests, as well as acc
 6. Issue that pull request!
 
 Development Environment
----------------------
+-----------------------
 
 1. Clone your fork and install development dependencies::
 
@@ -39,7 +39,7 @@ Development Environment
     pytest
 
 Code Style
----------
+----------
 
 We use several tools to ensure consistent code style:
 
@@ -67,7 +67,7 @@ For coverage report::
     pytest --cov=synccfd --cov-report=html
 
 Documentation
-------------
+-------------
 
 To build documentation locally::
 

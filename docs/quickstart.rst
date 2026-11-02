@@ -1,10 +1,10 @@
 Quickstart Guide
-==============
+================
 
 This guide will help you get started with SynCCFD quickly.
 
 Generating Synthetic Data
-------------------------
+-------------------------
 
 Generate synthetic credit card transaction data:
 
@@ -23,5 +23,20 @@ Generate synthetic credit card transaction data:
 
 The returned ``transactions`` frame includes a ``TX_FRAUD`` label marking the
 simulated fraudulent transactions, ready for downstream analysis.
+
+With every v0.2 component (merchants, customer drift, seasonality and fraud
+injection), use a preset (:doc:`presets`):
+
+.. code-block:: python
+
+    from synccfd import DatasetGenerator
+    from synccfd.simulator import presets
+
+    generator = DatasetGenerator(**presets.realistic(n_customers=1_000, nb_days=90))
+    result = generator.generate_all()
+    generator.save(output_dir="data", save_format="parquet")  # with config.json
+
+The columns are described in :doc:`output`. Columns starting with ``GT_`` are ground
+truth: never use them as model inputs.
 
 For a complete walkthrough, see ``examples/simulator.ipynb``.

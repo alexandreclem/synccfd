@@ -4,6 +4,7 @@ Every default value lives here, next to a short note on why it was chosen. As in
 original paper, defaults are reasonable choices, not calibrated on real data.
 """
 
+import dataclasses
 import datetime
 import numbers
 from collections.abc import Mapping
@@ -99,6 +100,9 @@ class FraudConfig:
       (card testing) a few tiny CNP purchases, sometimes followed by scenario 3.
       Each scenario's daily rate can change over time (``intensity_schedule``).
 
+    "Injection parameters" are used only with ``mechanism="inject"``, "Merchant
+    parameters" only with injection and ``DatasetGenerator(merchants=...)``.
+
     Args:
         scenarios: Fraud scenarios to apply (subset of 1-4; 1-5 with injection).
         mechanism: ``"tamper"`` or ``"inject"`` (see above).
@@ -128,7 +132,7 @@ class FraudConfig:
             tampered transaction.
         s4_cnp_prob: Scenario 4 — probability that a tampered transaction is CNP.
 
-    Injection only (``mechanism="inject"``):
+    Injection parameters:
         s1_customers_per_day, s1_customer_fraction_per_day: Scenario 1 — victims per
             day (absolute / proportional).
         s5_customers_per_day, s5_customer_fraction_per_day: Scenario 5 — victims per
@@ -175,7 +179,7 @@ class FraudConfig:
         amount_log_sigma: Scenarios 3 and 4 — spread of the amounts (log scale).
         intensity_schedule: Per scenario, a multiplier of its daily rate over time.
 
-    Injection with merchants (``DatasetGenerator(merchants=...)``):
+    Merchant parameters:
         s1_categories: Scenario 1 — categories of the anomalous purchase.
         s3_category_schedule: Scenario 3 — ``((start, categories), ...)``: from
             ``start`` (fraction of the period) on, the purchases are in
@@ -1013,3 +1017,22 @@ class MerchantConfig:
         """Global category weights, normalised."""
         w = np.array([c.weight for c in self.categories], dtype=float)
         return w / w.sum()
+
+
+def to_jsonable(value):
+    """A configuration (dataclasses, mappings, tuples, numpy scalars) as plain JSON
+    types: dataclasses become ``{"type": name, field: value, ...}``."""
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        out = {"type": type(value).__name__}
+        for f in dataclasses.fields(value):
+            out[f.name] = to_jsonable(getattr(value, f.name))
+        return out
+    if isinstance(value, Mapping):
+        return {str(k): to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [to_jsonable(v) for v in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value.isoformat()
+    return value
