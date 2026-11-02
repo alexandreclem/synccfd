@@ -124,8 +124,8 @@ def _customer_transactions(
     mean: Union[float, np.ndarray] = customer["mean_amount"]
     std: Union[float, np.ndarray] = customer["std_amount"]
     cnp_prob: Union[float, np.ndarray] = customer["cnp_prob"]
-    w = np.zeros(n)
-    is_b = np.zeros(n, dtype=bool)
+    w: np.ndarray = np.zeros(n)
+    is_b: np.ndarray = np.zeros(n, dtype=bool)
     if drifting:
         assert drift is not None
         w = w_day[days]
