@@ -308,8 +308,9 @@ opcional, isso também permite a ablação (fraudes realistas com e sem comercia
 
 ### 3.1 Mudança de mecanismo (só no motor v2): injeção em vez de adulteração
 Na v0.1, os cenários 3 e 4 **alteram** transações legítimas do cliente (mudam
-local, tipo e multiplicam o valor por 5). No v2, o fraudador **gera transações novas**,
-que se somam às do cliente:
+local, tipo e multiplicam o valor por 5), e o cenário 1 **rotula** como fraude as
+transações legítimas acima de R$ 220. No v2, em todos os cenários, o fraudador **gera
+transações novas**, que se somam às do cliente:
 - o histórico legítimo do cliente continua íntegro, como acontece na realidade;
 - valor, horário e comerciante da fraude vêm do comportamento do fraudador, não do cliente;
 - `FraudConfig(engine="v2")` liga esse mecanismo; `engine="legacy"` mantém a adulteração.
@@ -318,7 +319,7 @@ que se somam às do cliente:
 
 | # | cenário | comportamento do fraudador (sem comerciantes) | enriquecimento com comerciantes (Fase 4) |
 |---|---|---|---|
-| 1 | valor anômalo | transação acima do quantil `q` (padrão 0,995) da distribuição **global** de valores. Substitui o limiar fixo de R$ 220, que não se ajusta a outras configurações | quantil **por categoria** (viagem e eletrônicos legitimamente caros não viram fraude) |
+| 1 | valor anômalo | **injetado**, como os demais: o fraudador faz uma compra **nova** com valor muito acima do histórico do próprio cliente, isto é, acima de um quantil alto (`q`) do valor das compras recentes dele, multiplicado por um fator configurável. Transações legítimas **nunca** são rotuladas como fraude. Substitui o limiar fixo de R$ 220, que rotulava o *drift* legítimo como fraude (ver "Para o texto", Fase 2); o legacy mantém o limiar fixo | a compra fraudulenta cai em categorias de valor alto (eletrônicos, viagem); o quantil continua sendo o do histórico do cliente |
 | 2 | terminal comprometido (*skimming*) | um terminal é comprometido por `D` dias; as transações CP ali viram fraude, e o cartão de cada vítima entra numa fila de "cartões vazados" que alimenta o cenário 3 dias depois (encadeamento realista) | compromete o **comerciante** inteiro (todos os seus terminais), com seleção ponderada pelo risco da categoria (posto e restaurante mais altos) |
 | 3 | número do cartão roubado (CNP) | por `D` dias, o fraudador faz compras **novas** só em CNP, com entrega no local do fraudador, horário com viés noturno, rajadas de 2 a 5 compras em poucas horas e valores acima do padrão do cliente | compras concentradas em categorias revendáveis ou digitais (eletrônicos, marketplace, serviços digitais, viagem), com valores acima da mediana da categoria |
 | 4 | cartão físico roubado (CP) | começa num instante `τ` e faz compras **novas** em sequência rápida (minutos), em terminais perto da cidade da vítima, até atingir um limite de gasto ou ser bloqueado (`s4_max_txs`, `s4_block_prob_per_tx`). Pode haver tentativas CNP | compras em categorias revendáveis (eletrônicos, posto, farmácia, supermercado) |
@@ -346,6 +347,10 @@ que se somam às do cliente:
 - [ ] Golden test passa.
 - [ ] Teste: no v2, o número de transações legítimas de cada cliente não muda quando a
       fraude é ligada (injeção, não adulteração).
+- [ ] Teste: no v2, nenhuma transação legítima é rotulada como fraude pelo cenário 1, e
+      cada fraude do cenário 1 tem valor acima de fator × quantil `q` das compras recentes
+      do cliente. Com *drift* ligado, a fração do cenário 1 vinda do regime B fica próxima
+      da fração de transações do regime B (documentar os dois valores).
 - [ ] Teste: cenário 5 só tem valores ≤ R$ 5 e `TX_TYPE == "CNP"`; quando escala, o
       `GT_CAMPAIGN_ID` é compartilhado com o cenário 3 seguinte.
 - [ ] Teste: as transações do cenário 4 acontecem em até 24 h a partir de `τ` e somam até o
@@ -423,8 +428,8 @@ cenários de fraude com comerciantes (Fase 3).
 
 ### 4.3 Critérios de aceite
 - [ ] Golden test passa.
-- [ ] Teste: com comerciantes ligados, o cenário 1 usa o quantil por categoria, e o cenário 3
-      concentra compras nas categorias configuradas.
+- [ ] Teste: com comerciantes ligados, as fraudes do cenário 1 caem nas categorias de valor
+      alto, e o cenário 3 concentra compras nas categorias configuradas.
 - [ ] Teste: com *drift* e comerciantes ligados, clientes do regime B têm preferência por
       categoria diferente da do regime A.
 - [ ] Notebooks das Fases 2 e 3 atualizados para mostrar também a visão por categoria.
@@ -493,9 +498,9 @@ cenários de fraude com comerciantes (Fase 3).
 | tema | decisão |
 |---|---|
 | reproduzir o artigo | não é possível com a v0.1 (a ordem dos sorteios mudou na reescrita). A linha de base da dissertação será refeita sobre o SynCCFD |
-| fraude por injeção | muda a semântica dos cenários 3 e 4 no v2. Justificativa na dissertação: o histórico legítimo do cliente é preservado, o que é mais realista e evita contaminar os atributos de agregação |
+| fraude por injeção | muda a semântica dos cenários 1, 3 e 4 no v2. Justificativa na dissertação: o histórico legítimo do cliente é preservado, o que é mais realista e evita contaminar os atributos de agregação |
 | ordem das fases | *drift* → fraudes → comerciantes. As fases anteriores funcionam sem os comerciantes, o que mantém cada componente opcional e permite a ablação |
-| limiar fixo do cenário 1 | substituído por quantil por categoria no v2 |
+| limiar fixo do cenário 1 | no v2, substituído por fraude injetada: compra acima de fator × quantil alto das compras recentes do próprio cliente; transações legítimas nunca viram fraude. O legacy mantém o limiar fixo. Motivo: com o limiar fixo, 86% do cenário 1 vinha de clientes no regime B (Fase 2) |
 | taxa de fraude e escala | `rate_mode="proportional"` é o padrão nos presets novos |
 | drift × sazonalidade | separados: sazonalidade é estacionária e não deve ser contada como drift |
 
@@ -1121,7 +1126,7 @@ em que $r$ é a tendência anual de valor do *drift* global.
 ### Figuras geradas
 | arquivo | legenda proposta | seção da dissertação |
 |---|---|---|
-| `docs/figures/fase2/drift_exemplos_clientes.pdf` | Um cliente de cada tipo de *drift*. À esquerda, o valor de cada transação, colorido pelo regime de origem, e os valores médios dos regimes A e B; à direita, as transações por dia, a média móvel de 14 dias e a taxa esperada $\lambda(t)$. A linha vertical marca $t_0$; a faixa cinza, a transição $[t_0, t_0 + L]$; as faixas laranja, os episódios do regime B (recorrente). | 4.4 Componentes novos — *concept drift* (figura central) |
+| `docs/figures/fase2/drift_exemplos_clientes.pdf` | Um cliente de cada tipo de *drift*. À esquerda, o valor de cada transação, colorido pelo regime de origem, e os valores médios dos regimes A e B; à direita, as transações por dia, a média móvel de 14 dias e a taxa esperada $\lambda(t)$. A linha vertical marca $t_0$; a faixa cinza, a transição $[t_0, t_0 + L]$; as faixas laranja, os episódios do regime B (recorrente). Clientes escolhidos entre os frequentes ($\geq 2{,}5$ transações por dia no regime A) com a maior mudança de valor; no gradual e no incremental, só entre os de transição longa ($L \geq 25$ dias). | 4.4 Componentes novos — *concept drift* (figura central) |
 | `docs/figures/fase2/drift_fracao_regime_b.pdf` | Peso médio do regime B, $\bar w(t)$, entre os clientes de cada tipo de *drift* e entre todos os clientes. Para os tipos súbito e recorrente, é a fração de clientes no regime B. | 4.4 Componentes novos — *concept drift* |
 | `docs/figures/fase2/drift_parametros_regime_b.pdf` | Distribuição das mudanças sorteadas para os clientes com *drift*: razão dos valores médios e das frequências (escala log) e diferença na probabilidade de CNP. | 4.4 ou 4.6 Saídas e gabarito |
 
@@ -1139,7 +1144,7 @@ Configuração das figuras: 5 000 clientes, 10 000 terminais, 365 dias a partir 
 | gradual: fração de transações de B × $w$ médio, em 5 faixas de $w$ | diferença máxima de 0,011 (por exemplo, $w = 0{,}502$ e fração 0,508) | idem |
 | incremental: valor médio observado ÷ média interpolada | 1,029 (o excesso vem da troca de sorteios negativos, como no regime A da Fase 1) | idem |
 | tempo de geração no v2 | sem *drift*: 14,5 s; com *drift*: 16,1 s; com *drift* e sazonalidade: 24,2 s | 10 000 clientes, 20 000 terminais, 180 dias, `random_state=42` |
-| cenário 1 (limiar fixo de R$ 220) nas transações de cada regime | regime A: 0,06%; regime B: 2,30%; 11 360 das 13 229 transações do cenário 1 (86%) vêm do regime B | 5 000 clientes, 365 dias, `random_state=42`, `DriftConfig()`, `FraudConfig()` |
+| cenário 1 (limiar fixo de R$ 220) nas transações de cada regime | regime A: 0,06%; regime B: 2,30%; 11 360 das 13 229 transações do cenário 1 (86%) vêm do regime B, que tem 13,5% das transações | 5 000 clientes, 365 dias, `random_state=42`, `DriftConfig()`, `FraudConfig()` |
 
 ### Testes que comprovam o comportamento
 - `tests/golden/test_legacy_reproducibility.py`: o legacy continua reproduzindo a v0.1.0.
@@ -1186,12 +1191,16 @@ Configuração das figuras: 5 000 clientes, 10 000 terminais, 365 dias a partir 
   teste foi renomeado para `tests/examples/test_notebooks.py`.
 
 ### Pendências / ideias
-- **Interação com o cenário 1 (importante para a Fase 3):** com o limiar fixo de R$ 220,
-  86% das transações do cenário 1 vêm de clientes no regime B (ver "Números"), isto é,
-  mudanças legítimas de comportamento rotuladas como fraude. A troca do limiar por um
-  quantil, prevista na Fase 3, deve ser avaliada com o *drift* ligado: por exemplo, um
-  quantil sobre o histórico do próprio cliente, e não sobre todos os valores, para que o
-  rótulo do cenário 1 não dependa do regime.
+- **Interação com o cenário 1 (resolvida na Fase 3):** com o limiar fixo de R$ 220,
+  86% das transações do cenário 1 (11 360 de 13 229) vêm de clientes no regime B, que
+  responde por só 13,5% das transações; no regime B, 2,30% das transações viram cenário
+  1, contra 0,06% no regime A (ver "Números"). Ou seja, o cenário 1 rotula como fraude
+  mudanças legítimas de comportamento, e um detector treinado nesses dados aprenderia a
+  tratar *drift* como fraude. **Decisão (2026-11-02):** no motor v2, o cenário 1 passa a
+  ser injetado, como os demais: o fraudador faz uma compra nova com valor acima de um
+  quantil alto das compras recentes do próprio cliente, multiplicado por um fator
+  configurável, e transações legítimas nunca são rotuladas como fraude. O legacy mantém o
+  limiar fixo (golden test). Ver a tabela de cenários da Fase 3.
 - Os fatores de sazonalidade são aplicados igualmente a todos os clientes; com
   comerciantes (Fase 4), o fim de semana passa a variar por categoria.
 - O *drift* global ainda não tem figura própria no notebook.
