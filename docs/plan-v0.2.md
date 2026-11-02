@@ -194,17 +194,22 @@ src/synccfd/simulator/
   (não descartadas). Assim a frequência diária fica fiel ao parâmetro. Documentar.
 
 ### 1.3 Critérios de aceite
-- [ ] Golden test continua passando (legacy intocado).
-- [ ] Teste estatístico v2 × legacy, com os mesmos parâmetros (`n_customers=1000`,
+- [x] Golden test continua passando (legacy intocado).
+- [x] Teste estatístico v2 × legacy, com os mesmos parâmetros (`n_customers=1000`,
       `nb_days=30`), comparando:
       transações por cliente-dia, valor médio, proporção CNP, histograma de horário (teste
       KS, p > 0,01) e taxa de fraude por cenário (diferença relativa < 20%).
-- [ ] Reprodutibilidade: mesma seed → mesmos dados; seeds diferentes → dados diferentes.
-- [ ] Benchmark simples em `scripts/benchmark.py` registrado no PR.
-- [ ] Teste que executa `examples/simulator.ipynb` de ponta a ponta com parâmetros
+      *Horário: critério trocado do p-valor para o tamanho da diferença (estatística de
+      KS $D < 0{,}02$, separadamente para CP e CNP, semente fixa); ver "Para o texto",
+      Fase 1.*
+- [x] Reprodutibilidade: mesma seed → mesmos dados; seeds diferentes → dados diferentes.
+- [x] Benchmark simples em `scripts/benchmark.py` registrado no PR.
+      *Resultado registrado no "Para o texto"; vai para a descrição do PR.*
+- [x] Teste que executa `examples/simulator.ipynb` de ponta a ponta com parâmetros
       reduzidos (por exemplo, `nbclient` ou `pytest --nbmake`), marcado como `slow` e
       rodando no CI.
-
+      *Passa localmente; o job `slow` do CI já o executa, falta confirmar no primeiro
+      push.*
 ---
 
 ## Fase 2 — Customers com *concept drift* configurável
@@ -590,8 +595,7 @@ foi feito assim. Escrito para ser adaptado diretamente para a dissertação.>
 
 ## Fase 0 — Rede de segurança e configuração da fraude
 
-**Status:** implementada e aprovada em 2026-11-02, na branch `feat/v0.2-simulator`
-· PR *(a abrir)*
+**Status:** concluída em 2026-11-02 · integrada ao master pelo PR #1 (`d32326d`)
 
 ### O que foi implementado
 
@@ -612,12 +616,12 @@ A igualdade exata em todas as colunas, prevista no plano, não se sustenta entre
 plataformas. Gerado no Linux (Ubuntu 22.04, Python 3.10, pandas 2.3.3), o conjunto tem
 exatamente as mesmas linhas, os mesmos valores, tipos e rótulos (741 transações
 fraudulentas nos dois casos), mas as coordenadas diferem no último bit, em até
-$1{,}4 	imes 10^{-14}$, porque as bibliotecas matemáticas do Windows e do Linux
+$1{,}4 \times 10^{-14}$, porque as bibliotecas matemáticas do Windows e do Linux
 arredondam de forma diferente. Além disso, a unidade inferida para `TX_DATETIME` depende
 da versão do pandas (`[ms]` no arquivo gravado com o pandas 3.0.3, `[ns]` no pandas
 2.3.3). A tolerância de $10^{-12}$ é cerca de cem vezes maior que a diferença observada e
 ainda detecta mudanças reais: um teste confirma que `amount_multiplier=5.0001` (variação
-relativa de $2 	imes 10^{-5}$ no valor) é rejeitado.
+relativa de $2 \times 10^{-5}$ no valor) é rejeitado.
 
 Em seguida, todos os parâmetros da fraude que estavam fixos no código passaram a ser
 lidos de um objeto de configuração imutável, `FraudConfig`, definido em
@@ -720,7 +724,7 @@ Nenhuma (a Fase 0 não tem notebook).
 | taxa de fraude com a regra original do plano, $\max(1, \mathrm{round}(f \cdot N))$, frações padrão | 1,78% (500) × 0,23% (5 000) | idem (medido antes da correção, para justificá-la) |
 | taxa de fraude média, modo proporcional (Poisson), frações padrão | 0,508% (500 clientes; DP 0,110%) × 0,543% (5 000 clientes; DP 0,029%); diferença relativa de 6,4% | terminais = 2 × clientes, 60 dias, início 2023-01-01, 20 sementes (0 a 19); DP = desvio-padrão entre sementes |
 | taxa média por cenário, mesma configuração | 500 clientes: cenário 1: 0,074%; 2: 0,166%; 3: 0,113%; 4: 0,156%. 5 000 clientes: 1: 0,057%; 2: 0,225%; 3: 0,117%; 4: 0,145% | idem |
-| maior diferença entre Windows e Linux no conjunto golden | $1{,}4 	imes 10^{-14}$ (em `TX_SHIPP_LONG`; demais coordenadas até $7{,}1 	imes 10^{-15}$); nenhuma diferença nas colunas não float | Windows 11, Python 3.11.4, pandas 3.0.3 × Ubuntu 22.04 (WSL), Python 3.10.12, pandas 2.3.3 |
+| maior diferença entre Windows e Linux no conjunto golden | $1{,}4 \times 10^{-14}$ (em `TX_SHIPP_LONG`; demais coordenadas até $7{,}1 \times 10^{-15}$); nenhuma diferença nas colunas não float | Windows 11, Python 3.11.4, pandas 3.0.3 × Ubuntu 22.04 (WSL), Python 3.10.12, pandas 2.3.3 |
 | tempo de geração das transações legítimas (motor legacy) | 6,1 s (500 clientes, 9 790 transações) e 47,5 s (5 000 clientes, 96 566 transações) | 10 dias; Windows 11, Python 3.11.4; referência para o benchmark da Fase 1 |
 
 ### Testes que comprovam o comportamento
@@ -807,7 +811,204 @@ ablação devem ser feitas no motor v2, que usa um fluxo aleatório separado por
 como já previsto na Fase 5.
 
 ## Fase 1 — Motor v2
-*(a preencher)*
+
+**Status:** implementada e aprovada em 2026-11-02, na branch
+`feat/v0.2-phase1-engine` · PR *(número e commit de merge registrados no início da
+Fase 2)*
+
+### O que foi implementado
+
+O código da v0.1 foi movido, sem alteração de lógica, para o pacote
+`synccfd.simulator.legacy` (`legacy/generator.py` e `legacy/fraud.py`). O
+`DatasetGenerator`, em `simulator/generator.py`, passou a escolher o motor pelo
+parâmetro `engine`: `"legacy"` executa o código da v0.1; `"v2"` executa o motor novo;
+`"auto"` (padrão) escolhe o legacy enquanto nenhum componente exclusivo do v2 estiver
+ligado, o que ainda não existe nesta fase. Os caminhos de importação antigos
+(`synccfd.simulator.generator.DatasetGenerator`, `synccfd.simulator.fraud.FraudSimulator`
+e as importações do pacote raiz) continuam funcionando, e o teste golden confirma que o
+legacy segue reproduzindo a v0.1.0.
+
+O motor v2 (`synccfd.simulator.engine`) implementa o mesmo modelo da v0.1, mas usa
+apenas geradores locais (`numpy.random.Generator`), nunca o estado aleatório global. Toda
+a aleatoriedade vem de um único `SeedSequence(random_state)`, do qual se derivam fluxos
+com nome e posição fixos (`customers`, `terminals`, `merchants`, `transactions`, `drift`
+e `fraud`). Como a posição de cada fluxo é fixa, acrescentar ou ligar um componente nas
+fases seguintes não altera os sorteios dos demais. Os subfluxos (um por cliente, um por
+cenário de fraude) são derivados de forma pura, pela chave de derivação do
+`SeedSequence`: o fluxo do cliente $i$ não depende de quantos clientes existem.
+
+A geração de transações é vetorizada por cliente: para cada cliente, todos os dias são
+sorteados de uma vez, a partir do fluxo próprio daquele cliente. Assim, as transações de
+um cliente não dependem dos outros clientes, o que permitirá, na Fase 2, ligar o
+*drift* em alguns clientes sem alterar as transações dos demais. Os cenários de fraude 1
+a 4 têm a mesma semântica do legacy (adulteração das transações do cliente), e cada
+cenário sorteia a partir do seu subfluxo do fluxo `fraud`. As funções geográficas
+também foram vetorizadas (`location/sampling.py`): pontos aleatórios ao redor de um
+centro, com rejeição dos pontos fora do Brasil por um teste de pertinência vetorizado
+do `shapely` 2, e distâncias de haversine calculadas em blocos para encontrar os
+terminais ao alcance de cada cliente. O `LocationFeatures` ganhou um parâmetro opcional
+`rng` nos métodos de geração; sem ele, o comportamento do legacy é mantido.
+
+O v2 corrige, de forma explícita, um efeito colateral da v0.1: um horário sorteado fora
+do dia é sorteado novamente, em vez de a transação ser descartada. Na v0.1, cerca de 3%
+das transações CP eram descartadas, o que reduzia a frequência diária abaixo do
+parâmetro de Poisson e aumentava um pouco a proporção de CNP. Além disso, no v2 as
+transações são reordenadas cronologicamente depois da aplicação das fraudes (o cenário 4
+desloca transações no tempo) e o `TRANSACTION_ID` passa a ser a posição cronológica.
+
+Com 10 000 clientes, 20 000 terminais e 180 dias, o v2 gera 3,59 milhões de transações
+em 19,1 s, abaixo da meta de 2 min. Com 1 000 clientes e 180 dias, o legacy leva 67,7 s
+e o v2 leva 1,1 s, cerca de 60 vezes menos. A comparação estatística com o legacy
+(1 000 clientes, 30 dias) não encontrou diferenças além das esperadas pela correção do
+descarte de horários.
+
+### Decisões e justificativas
+| decisão | alternativa considerada | por que esta |
+|---|---|---|
+| um fluxo aleatório por cliente para as transações | sortear todas as transações de todos os clientes de uma vez | com um vetor global, mudar os parâmetros de um cliente (por exemplo, pelo *drift* da Fase 2) deslocaria os sorteios de todos os outros; com fluxos por cliente, os clientes sem *drift* ficam idênticos, o que permite comparar cenários com os mesmos números aleatórios |
+| fluxos nomeados em posição fixa, derivados pela chave do `SeedSequence` (funções puras) | `SeedSequence.spawn`, que guarda estado | `spawn` devolve filhos diferentes a cada chamada; a derivação pela chave dá sempre o mesmo fluxo para o mesmo nome, independentemente da ordem das chamadas |
+| horário inválido é sorteado novamente | descartar a transação, como na v0.1 | a frequência diária fica fiel ao parâmetro de Poisson (previsto no plano) |
+| reordenar as transações e reatribuir o `TRANSACTION_ID` depois das fraudes | manter a ordem anterior, como na v0.1 | o cenário 4 desloca transações no tempo; para o pipeline prequencial, a ordem cronológica precisa valer em todo o conjunto |
+| destino de pontos pela fórmula esférica (raio médio de 6 371,0088 km) | `geopy` (elipsoide WGS84), ponto a ponto | permite vetorizar; a distância continua uniforme em $[0, r]$ e o ângulo uniforme, como na v0.1, e a diferença entre esfera e elipsoide é desprezível em raios de até 12 km |
+| comparação v2 × legacy em três camadas (modelo de transações com os mesmos perfis; fraude sobre as mesmas transações; ponta a ponta) | só a comparação ponta a ponta | separa a variação do modelo de transações da variação de quais clientes e cidades foram sorteados, que é grande com 1 000 clientes |
+| KS do horário separado por tipo (CP e CNP) | KS sobre todas as transações | a mistura CP/CNP depende do `cnp_prob` dos clientes sorteados; por tipo, as duas distribuições são, em teoria, idênticas |
+| teste do notebook substitui os tamanhos em memória | criar parâmetros no notebook | o arquivo do notebook do TCC fica intocado; o teste falha se algum dos trechos substituídos deixar de existir |
+| `shapely>=2.0` e `scipy` (dev) | manter `shapely>=1.7`; implementar o KS à mão | o v2 usa o teste de pertinência vetorizado do `shapely` 2; o `scipy` fornece o KS de duas amostras |
+
+### Parâmetros finais (padrões)
+Os parâmetros do modelo são os mesmos da v0.1 (ver `engine/transactions.py` e
+`engine/customers.py`); a Fase 1 não cria parâmetros novos de modelo.
+
+| parâmetro | valor padrão | significado |
+|---|---|---|
+| `engine` | `"auto"` | `"legacy"`, `"v2"` ou `"auto"` (legacy enquanto não houver componente exclusivo do v2) |
+| fluxos aleatórios | `customers`, `terminals`, `merchants`, `transactions`, `drift`, `fraud` | ordem fixa; nomes só podem ser acrescentados ao fim |
+
+### Equações / regras
+Para cada cliente $c$, com fluxo próprio, e cada dia $d \in \{0, \dots, D-1\}$:
+- $N_{c,d} \sim \mathrm{Poisson}(\lambda_c)$, com $\lambda_c$ = `mean_nb_tx_per_day`;
+- valor $v \sim \mathcal{N}(\mu_c, \sigma_c)$; se $v < 0$, $v \sim \mathcal{U}(0, 2\mu_c)$;
+  arredondado para centavos;
+- tipo CNP com probabilidade $p_c$ = `cnp_prob` (sempre CNP se o cliente não tiver
+  terminal ao alcance);
+- horário do dia $t$ (em segundos, truncado para inteiro): CP,
+  $t \sim \mathcal{N}(43\,200;\ 20\,000)$; CNP, com probabilidade 1/2,
+  $t \sim \mathcal{N}(36\,000;\ 12\,500)$, ou $t \sim \mathcal{N}(72\,000;\ 12\,500) \bmod 86\,400$;
+  se $t \notin [0, 86\,400]$, $t$ é sorteado novamente (no legacy, a transação é descartada);
+- terminal: CP, uniforme entre os terminais a até 10 km do endereço de cobrança; CNP,
+  uniforme entre todos;
+- endereço de entrega: CP, terminal (0,8), cobrança (0,15) ou ponto aleatório a até
+  10 km da cobrança (0,05); CNP, cobrança (0,9) ou ponto aleatório (0,1).
+
+Ponto aleatório ao redor de $(\varphi_1, \lambda_1)$: distância $s \sim \mathcal{U}(0, r)$,
+rumo $\theta \sim \mathcal{U}(0°, 360°)$, $\delta = s / R$, com $R = 6\,371{,}0088$ km;
+$\varphi_2 = \arcsin(\sin\varphi_1 \cos\delta + \cos\varphi_1 \sin\delta \cos\theta)$ e
+$\lambda_2 = \lambda_1 + \operatorname{atan2}(\sin\theta \sin\delta \cos\varphi_1,\ \cos\delta - \sin\varphi_1 \sin\varphi_2)$;
+pontos fora do polígono do Brasil são sorteados de novo.
+
+### Figuras geradas
+Nenhuma. O notebook `examples/simulator.ipynb` continua gerando as figuras do TCC com o
+motor legacy (princípio 8).
+
+### Números
+| medida | valor | configuração |
+|---|---|---|
+| tempo de geração, v2 | 19,1 s (3 589 537 transações) | 10 000 clientes, 20 000 terminais, 180 dias, `random_state=42`; Windows 11, Python 3.11.4, Intel 64 Family 6 Model 183; `scripts/benchmark.py` |
+| tempo de geração, legacy × v2 | 67,7 s (354 028 transações) × 1,1 s (352 658 transações) | 1 000 clientes, 2 000 terminais, 180 dias; idem |
+| parcela do tempo no cálculo dos terminais ao alcance | cerca de 14 s de 30 s (execução com *profiler*) | 10 000 clientes, 20 000 terminais, 180 dias |
+| (A) transações por cliente-dia, legacy × v2 com os mesmos perfis | 1,9646 × 1,9937 (+1,5%) | 1 000 clientes, 2 000 terminais, 30 dias; perfis do legacy com `random_state=42`; fluxos do v2 com semente 1 |
+| (A) valor médio | 54,79 × 54,56 (−0,4%); KS p = 0,45 | idem |
+| (A) proporção de CNP | 0,672 × 0,664 | idem |
+| (A) KS do horário do dia | CP: D = 0,0153 (p = 0,019); CNP: D = 0,0062 (p = 0,43) | idem; D é a maior distância entre as duas distribuições empíricas acumuladas |
+| (B) taxa de fraude por cenário, legacy × média do v2 em 10 sementes | 1: 0,056% × 0,056%; 2: 1,469% × 1,479% (+0,6%); 3: 1,086% × 1,065% (−2,0%); 4: 1,407% × 1,389% (−1,2%) | mesmas transações legítimas do legacy (1 000 clientes, 30 dias); `FraudConfig()` |
+| (C) KS dos perfis de clientes, legacy × v2 | `mean_amount` p = 0,50; `mean_nb_tx_per_day` p = 0,57; `cnp_prob` p = 0,34; `billing_lat` p = 0,055; `billing_long` p = 0,37 | 1 000 clientes, `random_state=42` nos dois motores |
+| (C) transações por cliente-dia e taxa de fraude, ponta a ponta | 1,9646 × 1,9591; 4,02% × 4,24% | 1 000 clientes, 2 000 terminais, 30 dias, `random_state=42` |
+| (C) média de terminais ao alcance por cliente | legacy: 19,95; v2: 18,02 (sementes 0 a 7: de 17,9 a 22,4) | 1 000 clientes, 2 000 terminais |
+| conjunto do tamanho do golden no v2 | 2 907 transações (legacy: 2 826), 27,2% de fraude (legacy: 26,2%), 0,42 s | 100 clientes, 200 terminais, 15 dias, `random_state=42` |
+| execução do notebook com tamanhos reduzidos | 40,7 s | 1 000 clientes, 2 000 terminais, 20 dias; amostras de 2 000 transações nos gráficos |
+
+### Testes que comprovam o comportamento
+- `tests/golden/test_legacy_reproducibility.py`: o legacy continua reproduzindo a v0.1.0
+  depois da reorganização.
+- `tests/engine/test_rng.py`: nomes e ordem dos fluxos fixos; geradores puros; mesma
+  semente, mesmos sorteios; fluxos distintos entre si; o fluxo do cliente $i$ não depende
+  do número de clientes.
+- `tests/engine/test_sampling.py`: os pontos de destino estão à distância pedida; o
+  haversine coincide com o do pacote `haversine` (`rtol=1e-12`); os pontos ficam no raio e
+  dentro do Brasil, com distância média igual a $r/2$; as cidades são sorteadas com peso
+  pela população; os terminais ao alcance coincidem exatamente com os do legacy.
+- `tests/engine/test_v2_engine.py`: `"auto"` escolhe o legacy; mesmo esquema (colunas e
+  tipos) do legacy; ordem cronológica e `TRANSACTION_ID` sequencial; horários válidos;
+  transações CP só em terminais ao alcance; mesma semente, mesmos dados; sementes
+  diferentes, dados diferentes; o estado aleatório global não é tocado; as transações de
+  um cliente não dependem dos outros clientes; só os cenários ligados aparecem; limiar do
+  cenário 1; cenário 3 sempre CNP; a fraude não muda o número de transações; o cenário 2
+  não depende dos cenários 3 e 4.
+- `tests/engine/test_v2_vs_legacy.py` (`slow`): as comparações (A), (B) e (C) da tabela
+  acima, com as tolerâncias: razão de transações por cliente-dia entre 1,00 e 1,04; valor
+  médio a 2% (e KS do valor com p > 0,01); proporção de CNP a 0,02; horário do dia com
+  estatística de KS $D < 0{,}02$, para CP e para CNP; perfis de clientes com KS p > 0,01;
+  taxa por cenário e taxa total a 20%; transações por cliente-dia ponta a ponta a 5%.
+- `tests/examples/test_simulator_notebook.py` (`slow`): executa
+  `examples/simulator.ipynb` de ponta a ponta.
+
+### Desvios do plano
+- O critério do horário do dia usa o tamanho da diferença, e não o p-valor previsto no
+  plano: a estatística de KS deve ser $D < 0{,}02$, separadamente para CP e CNP, com a
+  semente fixa. Com cerca de 20 000 transações por tipo, o p-valor aponta diferenças
+  pequenas demais para importar: em CP, $D = 0{,}0153$ deu p = 0,019, perto do limiar de
+  0,01. O KS foi feito por tipo porque a mistura CP/CNP depende dos clientes sorteados
+  (ver "Decisões").
+- A comparação v2 × legacy foi organizada em três camadas (ver "Decisões"), em vez de
+  uma única comparação ponta a ponta.
+- O teste do notebook reduz também o tamanho das amostras usadas nos gráficos (de 10 000
+  para 2 000 transações), porque o notebook sorteia 10 000 transações de cada tipo nos 5
+  primeiros dias, o que exigiria cerca de 4 000 clientes.
+- `presets.py` ainda não foi criado (fica para a Fase 5, onde os presets são definidos);
+  o campo `FraudConfig.engine` (adulteração × injeção) fica para a Fase 3.
+- Acrescentados: `location/sampling.py` (funções geográficas vetorizadas) e o módulo
+  `simulator/fraud.py`, mantido como caminho de importação compatível.
+- O v2 tem duas diferenças em relação ao legacy que o plano não previa (ver a seção
+  seguinte).
+
+### Diferenças do v2 em relação ao legacy
+Além da correção prevista no plano (horários inválidos sorteados de novo, em vez de
+descartados), o v2 difere do legacy em dois pontos:
+
+1. **Renumeração depois das fraudes.** No v2, as transações são reordenadas
+   cronologicamente depois da aplicação dos cenários de fraude, e o `TRANSACTION_ID`
+   passa a ser a posição na ordem cronológica. Na v0.1, o cenário 4 desloca transações
+   para o primeiro dia do período de roubo, mas o conjunto não é reordenado, de modo que
+   a ordem do `TRANSACTION_ID` deixa de ser cronológica. Em caso de horários iguais, o v2
+   desempata pelo cliente e depois pela ordem de geração, o que torna o resultado
+   determinístico.
+2. **Geometria esférica, e não geodésica.** No v2, o ponto a uma distância $s$ e com um
+   rumo $\theta$ de um centro é calculado pela fórmula esférica, com raio médio
+   $R = 6\,371{,}0088$ km, a mesma do pacote `haversine`. No legacy, ele é calculado
+   pelo `geopy`, sobre o elipsoide WGS84. As distâncias entre pontos (terminais ao
+   alcance, fraudador perto da vítima) usam haversine nos dois motores. A diferença entre
+   esfera e elipsoide é desprezível nos raios usados (até 12 km).
+
+**Para o modelo orientado a dados (frente [DDM]):** os atributos de distância calculados
+no pipeline (por exemplo, entre o endereço de cobrança e o terminal ou o endereço de
+entrega) devem usar a mesma fórmula do simulador: haversine com $R = 6\,371{,}0088$ km
+(`synccfd.simulator.location.sampling.haversine_km`). Assim, um limiar de distância usado
+pelo simulador (como o raio de 10 km dos terminais ao alcance) tem o mesmo significado
+nos atributos.
+
+### Pendências / ideias
+- O cálculo dos terminais ao alcance é por força bruta (todos os pares cliente ×
+  terminal) e responde por cerca de metade do tempo do v2; pode ser acelerado agrupando
+  os terminais por cidade, se necessário.
+- No v2, a escolha de *quais* terminais e clientes são comprometidos já usa o gerador
+  local (pendência da Fase 0 resolvida).
+- O teste do notebook foi confirmado no CI (Linux, Python 3.11): o job `slow`, com a
+  comparação v2 × legacy e o notebook, levou cerca de 6 min.
+- No CI com Python 3.10 (numpy 2.2), o `mypy` acusou um erro de tipo que não aparece
+  com o numpy mais recente: os stubs do numpy 2.2 tratam de forma diferente a forma do
+  array resultante de uma indexação booleana. Foi corrigido só com anotação de tipo.
+  Conferir o `mypy` contra a versão mínima suportada do numpy, e não só contra a mais
+  recente.
 
 ## Fase 2 — Customers com *concept drift*
 *(a preencher)*
