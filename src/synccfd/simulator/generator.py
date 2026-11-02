@@ -52,8 +52,8 @@ class _TransactionGenerator:
             random_state=random_state,
         )
 
-        self.customer_profiles = None
-        self.terminal_profiles = None
+        self.customer_profiles: Optional[pd.DataFrame] = None
+        self.terminal_profiles: Optional[pd.DataFrame] = None
 
     def generate_customer_profiles(self) -> pd.DataFrame:
         """Generate customer profiles with their properties."""
@@ -253,10 +253,10 @@ class _TransactionGenerator:
     def generate_transactions(self) -> pd.DataFrame:
         """Generate transaction dataset."""
         if self.customer_profiles is None:
-            self.generate_customer_profiles()
+            self.customer_profiles = self.generate_customer_profiles()
 
         if self.terminal_profiles is None:
-            self.generate_terminal_profiles()
+            self.terminal_profiles = self.generate_terminal_profiles()
 
         # Generate customer available terminals
         print("Computing available terminals for each customer (CP Txs)...")

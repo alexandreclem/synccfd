@@ -1,5 +1,6 @@
 import random
 from collections import deque
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -11,7 +12,7 @@ from .location.features import LocationFeatures
 class FraudSimulator:
     """Simulates different credit card fraud scenarios."""
 
-    def __init__(self, random_state: int = None):
+    def __init__(self, random_state: Optional[int] = None):
         """
         Initialize FraudSimulator.
 
@@ -94,8 +95,12 @@ class FraudSimulator:
         - Scenario 3: Card number stolen (CNP fraud)
         - Scenario 4: Physical card stolen (CP fraud)
         """
-        compromised_customers_queue = deque(maxlen=14)  # 14 days for scenario 3
-        robbed_customers_queue = deque(maxlen=5)  # 5 days for scenario 4
+        compromised_customers_queue: deque[np.ndarray] = deque(
+            maxlen=14
+        )  # 14 days for scenario 3
+        robbed_customers_queue: deque[np.ndarray] = deque(
+            maxlen=5
+        )  # 5 days for scenario 4
 
         for day in tqdm(
             range(transactions.TX_TIME_DAYS.max() + 1),
