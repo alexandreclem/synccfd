@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from synccfd.utils.data import DataManager
 
+from .config import FraudConfig
 from .fraud import FraudSimulator
 from .location.features import LocationFeatures
 
@@ -319,6 +320,7 @@ class DatasetGenerator:
         available_terminals_radius: float = 10.0,
         start_date: str = "2018-04-01",
         random_state: Optional[int] = 42,
+        fraud: Optional[FraudConfig] = None,
     ):
         """Initialize DatasetGenerator.
 
@@ -333,7 +335,10 @@ class DatasetGenerator:
             start_date: Start date for transaction generation (``YYYY-MM-DD``).
                 Defaults to '2018-04-01'.
             random_state: Random seed for reproducibility. Defaults to 42.
+            fraud: Fraud scenario parameters. Defaults to ``FraudConfig()``, which
+                reproduces v0.1.0.
         """
+        self.fraud_config = fraud if fraud is not None else FraudConfig()
         self.generator = _TransactionGenerator(
             n_customers=n_customers,
             n_terminals=n_terminals,
@@ -343,7 +348,9 @@ class DatasetGenerator:
             start_date=start_date,
             random_state=random_state,
         )
-        self.fraud_simulator = FraudSimulator(random_state=random_state)
+        self.fraud_simulator = FraudSimulator(
+            random_state=random_state, config=self.fraud_config
+        )
 
         # Populated by generate(); consumed by save().
         self.customer_profiles: Optional[pd.DataFrame] = None

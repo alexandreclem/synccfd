@@ -139,15 +139,19 @@ class FraudConfig:
   O caminho legacy precisa manter isso, além da checagem `len(disponíveis) >= s3 + s4`.
 - `rate_mode="proportional"`: número por dia = `max(1, round(fração × população))`. Isso
   resolve o problema atual em que um dataset pequeno sai com cerca de 15% de fraude.
+  *Corrigido na implementação: contagem diária ~ `Poisson(fração × população)`, sem
+  mínimo (ver "Para o texto", Fase 0).*
 - `FraudSimulator` passa a receber o `FraudConfig` e ler dele todos os valores fixos.
 - Validação em `__post_init__`: frações entre 0 e 1, durações > 0, cenários conhecidos.
 
 ### 0.3 Critérios de aceite
-- [ ] Golden test passa.
-- [ ] Teste: `rate_mode="proportional"` mantém a taxa de fraude estável (±30% relativo)
+- [x] Golden test passa.
+- [x] Teste: `rate_mode="proportional"` mantém a taxa de fraude estável (±30% relativo)
       entre `n_customers=500` e `n_customers=5000` (mesmos dias).
-- [ ] Teste: `FraudConfig(scenarios=(1,))` gera só `TX_FRAUD_SCENARIO ∈ {0, 1}`.
-- [ ] CHANGELOG e README atualizados (seção "Fraud configuration").
+      *Verificado com as frações padrão sobre a média de 20 seeds e 60 dias, após a
+      troca da regra por Poisson (ver "Para o texto", Fase 0).*
+- [x] Teste: `FraudConfig(scenarios=(1,))` gera só `TX_FRAUD_SCENARIO ∈ {0, 1}`.
+- [x] CHANGELOG e README atualizados (seção "Fraud configuration").
 
 ---
 
@@ -560,7 +564,176 @@ foi feito assim. Escrito para ser adaptado diretamente para a dissertação.>
 ```
 
 ## Fase 0 — Rede de segurança e configuração da fraude
-*(a preencher)*
+
+**Status:** implementada em 2026-11-02, na branch `feat/v0.2-simulator`, aguardando
+revisão · PR *(a abrir)*
+
+### O que foi implementado
+
+Antes de qualquer alteração no código, o comportamento da v0.1.0 foi congelado num teste
+de regressão "golden". O script `scripts/make_golden.py` gera, com a configuração padrão,
+um conjunto pequeno (100 clientes, 200 terminais, 15 dias, início em 2023-01-01,
+`random_state=42`) e grava os três DataFrames em `tests/golden/data/` no formato Parquet.
+O teste `tests/golden/test_legacy_reproducibility.py` regenera o conjunto e o compara
+com os arquivos gravados por igualdade exata (`assert_frame_equal(..., check_exact=True)`).
+O commit do teste golden (`2c95ec5`) antecede todos os commits que alteram o código da
+biblioteca.
+
+Em seguida, todos os parâmetros da fraude que estavam fixos no código passaram a ser
+lidos de um objeto de configuração imutável, `FraudConfig`, definido em
+`synccfd/simulator/config.py`. Ele permite escolher quais cenários aplicar e ajustar o
+limiar de valor do cenário 1, o número de terminais e clientes comprometidos por dia, as
+durações de cada cenário, a fração de transações adulteradas no cenário 3, o
+multiplicador de valor dos cenários 3 e 4 e a probabilidade de CNP no cenário 4. A
+configuração é passada por `DatasetGenerator(fraud=...)` ou `FraudSimulator(config=...)`.
+Os valores padrão reproduzem exatamente a v0.1.0, o que o teste golden confirma.
+
+Foi acrescentado um segundo modo de cálculo da taxa de comprometimento,
+`rate_mode="proportional"`. Nele, o número de terminais (cenário 2) ou de clientes
+(cenários 3 e 4) comprometidos em cada dia é sorteado de uma distribuição de Poisson
+com média $f \cdot N$, sendo $f$ a fração configurada e $N$ o tamanho da população. O
+número esperado de comprometimentos por dia é, portanto, proporcional à população, e um
+dia pode não ter nenhum. No modo `"absolute"` (padrão, igual à v0.1), esse número é
+fixo, de modo que a taxa de fraude cresce à medida que o conjunto diminui: com 100
+clientes e 15 dias, 26,2% das transações são fraudulentas, contra 0,59% com 5 000
+clientes e 10 dias. As frações padrão do modo proporcional foram escolhidas para que, em
+média, coincidam com as contagens absolutas no tamanho padrão do gerador (10 000 clientes
+e 20 000 terminais): $3 \times 10^{-4} \cdot 10\,000 = 3$ clientes e
+$10^{-4} \cdot 20\,000 = 2$ terminais por dia.
+
+As contagens diárias do modo proporcional são sorteadas uma única vez, antes da
+aplicação dos cenários, com um gerador local (`numpy.random.Generator`). Cada cenário
+recebe um fluxo aleatório próprio, derivado de `np.random.SeedSequence(random_state)`,
+de modo que desligar um cenário não altera as contagens dos outros e o estado aleatório
+global usado pelo motor legacy não é tocado. No motor legacy, a semente passa a
+controlar essas contagens; a escolha de *quais* terminais e clientes são comprometidos
+continua dependendo só do dia, como na v0.1.
+
+Em conjuntos pequenos, o modo proporcional mantém a taxa *esperada*, mas cada execução
+varia mais: com 500 clientes, a média é de 0,15 vítima nova por dia em cada um dos
+cenários 3 e 4, e a maioria dos dias não tem nenhuma. Com 60 dias e 20 sementes, a taxa
+média de fraude foi de 0,508% com 500 clientes (desvio-padrão de 0,110% entre sementes) e
+de 0,543% com 5 000 clientes (desvio-padrão de 0,029%), uma diferença relativa de 6,4%.
+
+Para que `mypy src` passasse, como exige o princípio 7, foram corrigidos os 36 erros de
+tipagem que já existiam na v0.1.0. As correções foram apenas de anotação (tipos
+`Optional`, anotação de atributos inicializados com `None` e de variáveis locais) e não
+alteram o comportamento, o que o teste golden confirma. Também foi corrigida uma falha da
+v0.1 nas filas dos cenários 3 e 4 (ver "Decisões e justificativas").
+
+### Decisões e justificativas
+| decisão | alternativa considerada | por que esta |
+|---|---|---|
+| golden em três arquivos Parquet | pickle (`.pkl`) | pickles podem não abrir em outras versões do pandas, e o CI testa Python 3.9 a 3.12 |
+| comparar o DataFrame regenerado após passar pelo mesmo ciclo de escrita e leitura em Parquet | comparar direto com o arquivo lido | o Parquet devolve a coluna de listas `available_terminals` como arrays; o ciclo torna a comparação equivalente sem relaxar a igualdade exata |
+| sortear os clientes dos cenários 3 e 4 numa única chamada, `sample(n=n3+n4, random_state=day)`, e dividir depois | um sorteio por cenário | preserva a sequência de sorteios da v0.1 |
+| `int(n * s3_tamper_fraction)` no lugar de `int(n / 3)` | manter a divisão por 3 fixa | verificado que `int(n * (1/3)) == int(n / 3)` para todo `n < 3 000 000`, então o padrão é idêntico |
+| contagem diária proporcional sorteada de $\mathrm{Poisson}(f \cdot N)$, sem mínimo | $\max(1, \mathrm{round}(f \cdot N))$, como no plano original | o mínimo de 1 tornava a taxa dependente do tamanho quando $f \cdot N < 1$ (ver "Desvios do plano"); a Poisson mantém a média exata para qualquer $N$ |
+| um fluxo aleatório local por cenário, derivado de `SeedSequence(random_state)` | usar o estado global do `numpy` | não altera os sorteios do legacy e torna os cenários independentes entre si (princípio 3) |
+| retirar elementos das filas dos cenários 3 e 4 só se não estiverem vazias (registrado como correção de bug no CHANGELOG) | manter o `popleft()` incondicional | na v0.1, um dia sem clientes disponíveis suficientes não acrescentava nada à fila, mas um elemento era retirado depois, o que podia gerar `IndexError`. Com os padrões, quando a v0.1 não falhava, o resultado é idêntico |
+| `FraudConfig` imutável (`frozen=True`), com `scenarios` sempre guardado como tupla | dataclass mutável | a configuração efetiva será serializada em `config.json` (Fase 5); imutabilidade evita alterá-la por engano depois de criada |
+| regra de contagem testada diretamente (rápido); teste de ponta a ponta marcado como `slow`, excluído da execução padrão (`addopts = -m "not slow"`) e executado num job separado do CI | só o teste de ponta a ponta | o teste de ponta a ponta leva cerca de 4 min; a regra de contagem pode ser verificada em milissegundos |
+
+### Parâmetros finais (padrões)
+| parâmetro | valor padrão | significado |
+|---|---|---|
+| `scenarios` | `(1, 2, 3, 4)` | cenários aplicados |
+| `rate_mode` | `"absolute"` | `"absolute"`: contagem fixa por dia; `"proportional"`: contagem diária sorteada de $\mathrm{Poisson}(f \cdot N)$ |
+| `s1_amount_threshold` | 220,0 | transações acima deste valor são fraude (cenário 1) |
+| `s2_terminals_per_day` | 2 | terminais comprometidos por dia (modo absoluto) |
+| `s2_terminal_fraction_per_day` | $10^{-4}$ | fração de terminais comprometidos por dia (modo proporcional) |
+| `s2_duration_days` | 28 | dias em que um terminal fica comprometido |
+| `s3_customers_per_day`, `s4_customers_per_day` | 3, 3 | clientes comprometidos por dia (modo absoluto) |
+| `s3_customer_fraction_per_day`, `s4_customer_fraction_per_day` | $3 \times 10^{-4}$, $3 \times 10^{-4}$ | fração de clientes comprometidos por dia (modo proporcional) |
+| `s3_duration_days`, `s4_duration_days` | 14, 5 | dias em que um cliente fica comprometido |
+| `s3_tamper_fraction` | 1/3 | fração das transações do cliente do cenário 3 que viram fraude |
+| `amount_multiplier` | 5,0 | multiplicador do valor das transações adulteradas (cenários 3 e 4) |
+| `s4_cnp_prob` | 0,5 | probabilidade de uma transação adulterada do cenário 4 ser CNP |
+
+### Equações / regras
+- Cenário 1: $\mathrm{fraude}(x) = [\,\mathrm{valor}(x) > s_1\,]$, com $s_1$ = `s1_amount_threshold`.
+- Comprometimentos no dia $d$, para o cenário $k \in \{2, 3, 4\}$ e população $N$
+  (terminais para $k=2$, clientes para $k=3,4$):
+  $$
+  n_k(d) = \begin{cases}
+    c_k & \text{se } \texttt{rate\_mode} = \texttt{"absolute"} \\
+    \sim \mathrm{Poisson}(f_k \cdot N) & \text{se } \texttt{rate\_mode} = \texttt{"proportional"}
+  \end{cases}
+  $$
+  com sorteios independentes entre dias e entre cenários, e $n_k(d) = 0$ se o cenário
+  $k$ não está em `scenarios`. Assim, $\mathbb{E}[n_k(d)] / N = f_k$ para qualquer $N$.
+- No dia $d$, os $n_3(d) + n_4(d)$ clientes são sorteados numa única chamada entre os que
+  não estão comprometidos; os $n_3(d)$ primeiros vão para o cenário 3 e os demais para o
+  cenário 4. O sorteio só ocorre se houver pelo menos $n_3(d) + n_4(d)$ clientes
+  disponíveis.
+
+### Figuras geradas
+Nenhuma (a Fase 0 não tem notebook).
+
+### Números
+| medida | valor | configuração |
+|---|---|---|
+| transações do conjunto golden | 2 826 | 100 clientes, 200 terminais, 15 dias, `random_state=42`, padrões |
+| taxa de fraude do conjunto golden | 26,2% (cenário 1: 2; 2: 193; 3: 209; 4: 337 transações) | idem |
+| taxa de fraude, modo absoluto | 5,06% (500 clientes) × 0,59% (5 000 clientes) | terminais = 2 × clientes, 10 dias, início 2023-01-01, `random_state=42` |
+| taxa de fraude com a regra original do plano, $\max(1, \mathrm{round}(f \cdot N))$, frações padrão | 1,78% (500) × 0,23% (5 000) | idem (medido antes da correção, para justificá-la) |
+| taxa de fraude média, modo proporcional (Poisson), frações padrão | 0,508% (500 clientes; DP 0,110%) × 0,543% (5 000 clientes; DP 0,029%); diferença relativa de 6,4% | terminais = 2 × clientes, 60 dias, início 2023-01-01, 20 sementes (0 a 19); DP = desvio-padrão entre sementes |
+| taxa média por cenário, mesma configuração | 500 clientes: cenário 1: 0,074%; 2: 0,166%; 3: 0,113%; 4: 0,156%. 5 000 clientes: 1: 0,057%; 2: 0,225%; 3: 0,117%; 4: 0,145% | idem |
+| tempo de geração das transações legítimas (motor legacy) | 6,1 s (500 clientes, 9 790 transações) e 47,5 s (5 000 clientes, 96 566 transações) | 10 dias; Windows 11, Python 3.11.4; referência para o benchmark da Fase 1 |
+
+### Testes que comprovam o comportamento
+- `tests/golden/test_legacy_reproducibility.py`: a configuração padrão reproduz a
+  v0.1.0 exatamente (três DataFrames). Verificado também que o teste detecta uma
+  mudança mínima (`amount_multiplier=5.0001`).
+- `tests/simulator/test_fraud_config.py`:
+  - `test_defaults_match_v0_1`: os padrões correspondem às constantes da v0.1, incluindo
+    `rate_mode="absolute"`;
+  - `test_invalid_values_raise`: validação de cenários desconhecidos ou repetidos, modo
+    inválido, frações fora de $[0, 1]$, durações não positivas, contagens negativas,
+    limiar negativo e multiplicador não positivo;
+  - `test_absolute_counts_ignore_population` e `test_disabled_scenarios_have_zero_count`:
+    contagens do modo absoluto e de cenários desligados;
+  - `test_proportional_counts_have_poisson_mean`: para $N \in \{500, 5\,000, 50\,000\}$,
+    média e variância das contagens diárias iguais a $f \cdot N$ (200 000 dias);
+  - `test_proportional_counts_can_be_zero`: com $f \cdot N = 0{,}15$, a fração de dias
+    sem vítima é $e^{-0{,}15}$ (sem mínimo de 1);
+  - `test_simulator_counts_are_reproducible_and_independent`: mesma semente, mesmas
+    contagens; sementes diferentes, contagens diferentes; desligar o cenário 3 não muda
+    as contagens do cenário 4;
+  - `test_only_selected_scenarios_are_labelled`: para vários subconjuntos de cenários,
+    só os rótulos ligados aparecem e `TX_FRAUD` é coerente com `TX_FRAUD_SCENARIO`;
+  - `test_scenario_1_only_through_dataset_generator`: `FraudConfig(scenarios=(1,))` via
+    `DatasetGenerator` gera só os rótulos 0 e 1;
+  - `test_amount_threshold_is_configurable`: o limiar do cenário 1 é respeitado;
+  - `test_proportional_rate_is_stable_across_sizes` (`slow`, fora da execução padrão):
+    com as frações padrão, a taxa média de fraude em 20 sementes e 60 dias difere menos
+    de 30% entre 500 e 5 000 clientes.
+
+### Desvios do plano
+- **Correção do plano:** a regra do modo proporcional prevista em 0.2,
+  $\max(1, \mathrm{round}(f \cdot N))$, foi substituída por uma contagem diária sorteada
+  de $\mathrm{Poisson}(f \cdot N)$, sem mínimo. Com a regra original e as frações
+  padrão, a taxa não ficava estável: com 500 clientes, $3 \times 10^{-4} \cdot 500 =
+  0{,}15$ virava 1 cliente por dia, cerca de 6,7 vezes a fração desejada, e as taxas
+  medidas foram de 1,78% (500 clientes) e 0,23% (5 000 clientes). Com a Poisson, as
+  frações padrão foram mantidas e a diferença caiu para 6,4%.
+- O critério de estabilidade é verificado sobre a média de 20 sementes e 60 dias, não
+  sobre uma única execução, porque em conjuntos pequenos a taxa realizada varia bastante
+  entre sementes.
+- O golden foi gravado como três arquivos Parquet (`v0_1_0_small_<nome>.parquet`), não
+  um único arquivo.
+- Fora do escopo original: correção dos 36 erros de `mypy` preexistentes (commit
+  `af7a236`, apenas anotações); remoção do `continue-on-error` do `mypy` no CI; job
+  separado no CI para os testes `slow`; CI disparado também em push para branches
+  `feat/**`.
+
+### Pendências / ideias
+- O mypy 2.x avisa que `python_version = "3.9"` não é mais suportado na configuração.
+  Não impede a checagem, mas pode exigir fixar a versão do mypy no CI do Python 3.9.
+- Na Fase 1, o motor v2 deve sortear também *quais* terminais e clientes são
+  comprometidos com o gerador local, e não com `random_state=day`.
+- Escolher, nos presets da Fase 5, frações proporcionais adequadas aos tamanhos usados
+  nos experimentos.
 
 ### Observações prévias sobre a v0.1 (registradas antes da implementação)
 

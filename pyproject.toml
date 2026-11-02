@@ -97,5 +97,8 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q"
+addopts = "-ra -q -m \"not slow\""
 testpaths = ["tests"]
+markers = [
+    "slow: long-running end-to-end tests, excluded by default (run with -m slow)",
+]
