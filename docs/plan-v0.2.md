@@ -1529,8 +1529,7 @@ figura da taxa usa também as seeds de 43 a 51.
 
 ## Fase 4 — Merchants
 
-**Status:** implementada em 2026-11-02, na branch `feat/v0.2-phase4-merchants`,
-aguardando revisão · PR *(a abrir)*
+**Status:** concluída em 2026-11-02 · integrada ao master pelo PR #5 (`ace944a`)
 
 ### O que foi implementado
 
