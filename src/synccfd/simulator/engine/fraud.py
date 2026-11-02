@@ -133,6 +133,7 @@ def _inject(
     n_tx = len(transactions)
     tx["GT_FRAUDSTER_ID"] = np.full(n_tx, -1, dtype=np.int64)
     tx["GT_CAMPAIGN_ID"] = np.full(n_tx, -1, dtype=np.int64)
+    tx["GT_COMPROMISE_ID"] = np.full(n_tx, -1, dtype=np.int64)
     rngs = {k: streams.generator("fraud", k) for k in config.scenarios}
     injected = inject_frauds(
         tx, customer_profiles, terminal_profiles, loc_features, config, rngs, n_days
@@ -167,7 +168,7 @@ def _inject(
         start_date,
         extra_columns=("TX_FRAUD", "TX_FRAUD_SCENARIO", *drift_gt, *FRAUD_GT_COLUMNS),
     )
-    for column in ("GT_FRAUDSTER_ID", "GT_CAMPAIGN_ID"):
+    for column in ("GT_FRAUDSTER_ID", "GT_CAMPAIGN_ID", "GT_COMPROMISE_ID"):
         values = frame[column].astype("Int64")
         frame[column] = values.mask(values < 0)
     return frame

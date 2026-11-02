@@ -7,6 +7,7 @@ import pytest
 from synccfd import DatasetGenerator, FraudSimulator
 from synccfd.simulator.config import DriftConfig, FraudConfig, IntensitySchedule
 from synccfd.simulator.engine.drift import CustomerDrift, regime_weight
+from synccfd.simulator.ground_truth import compromise_table
 from synccfd.simulator.location.sampling import haversine_km
 
 PARAMS = {
@@ -173,12 +174,14 @@ def test_schedule_in_generated_data():
 def test_legitimate_transactions_are_unchanged(clean, injected):
     _, _, before = clean
     _, _, after = injected
-    legit = after[after.TX_FRAUD_SCENARIO.isin([0, 2])]
+    legit = after[after.TX_FRAUD == 0]
+    # Legitimate transactions are neither altered nor labelled: every fraud, of
+    # every scenario, is a new transaction
     pd.testing.assert_frame_equal(
         legit[TX_COLUMNS].reset_index(drop=True), before[TX_COLUMNS]
     )
-    # Every other fraud is a new transaction
-    assert len(after) == len(before) + (~after.TX_FRAUD_SCENARIO.isin([0, 2])).sum()
+    assert (legit.TX_FRAUD_SCENARIO == 0).all()
+    assert len(after) == len(before) + after.TX_FRAUD.sum()
     assert (
         after.TX_FRAUD_SCENARIO.value_counts().index.sort_values() == range(6)
     ).all()
@@ -190,6 +193,9 @@ def test_ground_truth_columns(injected):
     fraud = transactions.TX_FRAUD == 1
     for column in ("GT_FRAUDSTER_ID", "GT_CAMPAIGN_ID"):
         assert (transactions[column].notna() == fraud).all()
+    # Only scenario 2 records the point of compromise; scenarios 1, 4 and 5 never
+    compromise = transactions.GT_COMPROMISE_ID.notna()
+    assert not (compromise & transactions.TX_FRAUD_SCENARIO.isin([1, 4, 5])).any()
     assert (transactions.TX_FRAUD == (transactions.TX_FRAUD_SCENARIO > 0)).all()
     assert transactions.TRANSACTION_ID.is_monotonic_increasing
     assert transactions.TX_TIME_SECONDS.is_monotonic_increasing
@@ -207,20 +213,24 @@ def test_reproducible(injected):
 def _scenario_1_thresholds(transactions, config):
     """``factor x quantile`` of each scenario-1 victim's purchases in the
     ``history_days`` before the day of the fraud."""
-    legit = transactions[transactions.TX_FRAUD_SCENARIO.isin([0, 2])]
+    legit = transactions[transactions.TX_FRAUD == 0]
+    population = legit.TX_AMOUNT.quantile(config.s1_quantile)
     by_customer = dict(tuple(legit.groupby("CUSTOMER_ID")))
-    thresholds = []
+    empty = legit.iloc[:0]
+    thresholds, fallback = [], []
     for _, fraud in _frauds(transactions, 1).iterrows():
-        own = by_customer[fraud.CUSTOMER_ID]
+        own = by_customer.get(fraud.CUSTOMER_ID, empty)
         day = fraud.TX_TIME_DAYS
         window = own[
             (own.TX_TIME_DAYS >= day - config.history_days) & (own.TX_TIME_DAYS < day)
         ]
-        assert len(window) >= config.min_history_tx
-        thresholds.append(
-            config.s1_amount_factor * window.TX_AMOUNT.quantile(config.s1_quantile)
+        short = len(window) < config.min_history_tx
+        quantile = (
+            population if short else window.TX_AMOUNT.quantile(config.s1_quantile)
         )
-    return np.array(thresholds)
+        thresholds.append(config.s1_amount_factor * quantile)
+        fallback.append(short)
+    return np.array(thresholds), np.array(fallback)
 
 
 def test_scenario_1_is_far_above_the_customer_history(injected):
@@ -228,8 +238,12 @@ def test_scenario_1_is_far_above_the_customer_history(injected):
     config = FraudConfig.realistic(**DENSE)
     frauds = _frauds(transactions, 1)
     assert len(frauds) > 300
-    thresholds = _scenario_1_thresholds(transactions, config)
+    thresholds, fallback = _scenario_1_thresholds(transactions, config)
     assert (frauds.TX_AMOUNT.to_numpy() > thresholds).all()
+    # Victims with little history are not skipped: they use the population quantile
+    # (here, mostly victims of the first days)
+    assert fallback.any()
+    assert (frauds.TX_TIME_DAYS.to_numpy()[fallback] < 30).mean() > 0.5
     upper = thresholds * (1 + config.s1_amount_spread)
     assert (frauds.TX_AMOUNT.to_numpy() <= upper + 0.01).all()
     # One purchase per campaign
@@ -275,21 +289,54 @@ def test_scenario_1_with_drift_does_not_label_regime_b():
 # --- scenarios 2-5 ------------------------------------------------------------------
 
 
-def test_scenario_2_labels_cp_purchases_and_leaks_cards(injected):
+def test_scenario_2_reads_cards_and_injects_their_use(injected):
     _, _, transactions = injected
+    config = FraudConfig.realistic(**DENSE)
+    reads = transactions[
+        transactions.GT_COMPROMISE_ID.notna() & (transactions.TX_FRAUD == 0)
+    ]
+    # The card is read at a CP purchase, which stays legitimate; once per compromise
+    assert len(reads) > 0 and (reads.TX_TYPE == "CP").all()
+    assert reads.GT_COMPROMISE_ID.is_unique
+    read_by_id = reads.set_index("GT_COMPROMISE_ID")
+
+    # Cloned cards: CP purchases near the fraudster, after the read, same customer
     s2 = _frauds(transactions, 2)
     assert len(s2) > 0 and (s2.TX_TYPE == "CP").all()
-    # Each compromised terminal is one campaign
-    assert (s2.groupby("GT_CAMPAIGN_ID").TERMINAL_ID.nunique() == 1).all()
-    # Some leaked cards are used in scenario 3 by the same fraudster, later
+    assert s2.GT_COMPROMISE_ID.notna().all()
+    for compromise, uses in s2.groupby("GT_COMPROMISE_ID"):
+        read = read_by_id.loc[compromise]
+        assert (uses.CUSTOMER_ID == read.CUSTOMER_ID).all()
+        delay = uses.TX_TIME_DAYS.min() - read.TX_TIME_DAYS
+        low, high = config.s2_use_delay_days_range
+        assert low <= delay <= high
+        assert uses.GT_CAMPAIGN_ID.nunique() == 1
+        span = uses.TX_TIME_SECONDS.max() - uses.TX_TIME_SECONDS.min()
+        assert span < 24 * 3600 and uses.TX_AMOUNT.sum() <= config.s4_spending_limit
+    # Cards read at one terminal compromise are used by the same fraudster
+    per_fraudster = s2.merge(
+        read_by_id[["TERMINAL_ID"]].rename(columns={"TERMINAL_ID": "READ_TERMINAL"}),
+        left_on="GT_COMPROMISE_ID",
+        right_index=True,
+    )
+    assert (per_fraudster.groupby("GT_FRAUDSTER_ID").READ_TERMINAL.nunique() == 1).all()
+
+    # Leaked cards: scenario-3 campaigns with the compromise id, after the read
     s3 = _frauds(transactions, 3)
-    leaked = s3[s3.GT_FRAUDSTER_ID.isin(s2.GT_FRAUDSTER_ID)]
+    leaked = s3[s3.GT_COMPROMISE_ID.notna()]
     assert len(leaked) > 0
-    first_skim = s2.groupby(["GT_FRAUDSTER_ID", "CUSTOMER_ID"]).TX_TIME_DAYS.min()
-    for (fraudster, customer), uses in leaked.groupby(
-        ["GT_FRAUDSTER_ID", "CUSTOMER_ID"]
-    ):
-        assert uses.TX_TIME_DAYS.min() > first_skim.loc[(fraudster, customer)]
+    for compromise, uses in leaked.groupby("GT_COMPROMISE_ID"):
+        read = read_by_id.loc[compromise]
+        assert (uses.CUSTOMER_ID == read.CUSTOMER_ID).all()
+        assert uses.TX_TIME_DAYS.min() > read.TX_TIME_DAYS
+
+    # About s2_clone_prob of the reads are cloned and s2_leak_prob leaked
+    table = compromise_table(transactions)
+    assert len(table) == len(reads)
+    used = table.USE_SCENARIO.value_counts(normalize=False)
+    assert used.get(2, 0) / len(table) == pytest.approx(config.s2_clone_prob, abs=0.05)
+    assert used.get(3, 0) / len(table) == pytest.approx(config.s2_leak_prob, abs=0.03)
+    assert (table.N_FRAUD_TX > 0).sum() == table.USE_SCENARIO.notna().sum()
 
 
 def test_scenario_3_bursts(injected):

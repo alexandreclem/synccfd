@@ -90,13 +90,14 @@ class FraudConfig:
     - ``"tamper"`` (default; v0.1): scenario 1 labels the legitimate transactions
       above a fixed amount; scenarios 3 and 4 alter legitimate transactions.
     - ``"inject"`` (v2 engine only): fraudsters make *new* transactions, added to
-      the customers' legitimate ones, which are never altered. Scenario 1 is a
-      purchase far above the customer's recent amounts; scenario 2 labels the CP
-      purchases at a compromised terminal and leaks some cards to scenario 3;
-      scenario 3 makes bursts of CNP purchases; scenario 4 a fast sequence of
-      purchases near the victim; scenario 5 (card testing) a few tiny CNP
-      purchases, sometimes followed by scenario 3. Each scenario's daily rate can
-      change over time (``intensity_schedule``).
+      the customers' legitimate ones, which are never altered nor labelled.
+      Scenario 1 is a purchase far above the customer's recent amounts; in
+      scenario 2, a compromised terminal reads the cards of its CP purchases (which
+      stay legitimate), and some of those cards are later cloned (CP purchases near
+      the fraudster) or leaked to scenario 3; scenario 3 makes bursts of CNP
+      purchases; scenario 4 a fast sequence of purchases near the victim; scenario 5
+      (card testing) a few tiny CNP purchases, sometimes followed by scenario 3.
+      Each scenario's daily rate can change over time (``intensity_schedule``).
 
     Args:
         scenarios: Fraud scenarios to apply (subset of 1-4; 1-5 with injection).
@@ -134,16 +135,20 @@ class FraudConfig:
             day (absolute / proportional).
         history_days: Window of the victim's recent purchases used as reference
             (scenarios 1, 3 and 4).
-        min_history_tx: Scenario 1 — a victim with fewer recent purchases is skipped
-            (no reference amount).
+        min_history_tx: Scenario 1 — for a victim with fewer recent purchases, the
+            quantile of all legitimate purchases of the period is used instead.
         s1_quantile, s1_amount_factor: Scenario 1 — the fraud amount is above
             ``s1_amount_factor`` times the ``s1_quantile`` quantile of the victim's
             recent amounts...
         s1_amount_spread: ...namely ``factor * quantile * (1 + U * spread)``,
             ``U ~ Uniform(0, 1]``.
-        s2_leak_prob: Scenario 2 — probability that a victim's card, read at a
-            compromised terminal, is later used in scenario 3.
-        s2_leak_delay_days_range: Scenario 2 — days until a leaked card is used.
+        s2_clone_prob: Scenario 2 — probability that a card read at a compromised
+            terminal is cloned: a sequence of CP purchases near the fraudster, with
+            the scenario-4 sequence parameters (``s4_max_txs``, ...), all CP.
+        s2_leak_prob: Scenario 2 — probability that a card read at a compromised
+            terminal is used in scenario 3 instead (exclusive with cloning).
+        s2_use_delay_days_range: Scenario 2 — days between the read and the use of
+            the card (cloned or leaked).
         s3_mean_bursts: Scenario 3 — mean number of bursts per campaign
             (``1 + Poisson(mean - 1)``), on random days of ``s3_duration_days``.
         s3_burst_size_range: Scenario 3 — purchases per burst.
@@ -211,9 +216,11 @@ class FraudConfig:
     s1_quantile: float = 0.95
     s1_amount_factor: float = 2.0
     s1_amount_spread: float = 0.5
-    # Skimmed cards are sold and used days later; only some are used.
+    # Skimmed cards are used days later, and only some of them: most often as a
+    # cloned card, sometimes only the number (CNP, scenario 3).
+    s2_clone_prob: float = 0.2
     s2_leak_prob: float = 0.05
-    s2_leak_delay_days_range: tuple[int, int] = (1, 14)
+    s2_use_delay_days_range: tuple[int, int] = (1, 14)
     # A few bursts of 2-5 purchases within hours, well above the usual amount.
     s3_mean_bursts: float = 3.0
     s3_burst_size_range: tuple[int, int] = (2, 5)
@@ -323,6 +330,7 @@ class FraudConfig:
             "s1_customer_fraction_per_day",
             "s5_customer_fraction_per_day",
             "s1_quantile",
+            "s2_clone_prob",
             "s2_leak_prob",
             "s4_block_prob_per_tx",
             "s4_cnp_attempt_prob",
@@ -359,8 +367,10 @@ class FraudConfig:
             raise ValueError("s1_amount_spread and amount_log_sigma must be >= 0.")
         if self.s3_mean_bursts < 1:
             raise ValueError(f"s3_mean_bursts must be >= 1, got {self.s3_mean_bursts}.")
+        if self.s2_clone_prob + self.s2_leak_prob > 1:
+            raise ValueError("s2_clone_prob + s2_leak_prob must be <= 1.")
         _check_range(
-            "s2_leak_delay_days_range", self.s2_leak_delay_days_range, 0, np.inf, True
+            "s2_use_delay_days_range", self.s2_use_delay_days_range, 0, np.inf, True
         )
         _check_range("s3_burst_size_range", self.s3_burst_size_range, 1, np.inf, True)
         _check_range("s5_n_tests_range", self.s5_n_tests_range, 1, np.inf, True)

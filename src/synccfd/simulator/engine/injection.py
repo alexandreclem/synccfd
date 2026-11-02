@@ -1,19 +1,23 @@
 """Fraud injection (v2 engine, ``FraudConfig(mechanism="inject")``).
 
 Fraudsters make *new* transactions, added to the customers' legitimate ones; a
-legitimate transaction is never altered, and only scenario 2 labels legitimate
-transactions (the CP purchases at a compromised terminal). Each scenario draws from
-its own sub-stream of the ``fraud`` stream.
+legitimate transaction is never altered nor labelled as fraud. Each scenario draws
+from its own sub-stream of the ``fraud`` stream.
 
 - Scenario 1 (anomalous amount): each victim gets one purchase far above its recent
   amounts: ``s1_amount_factor`` times the ``s1_quantile`` quantile of the victim's
   purchases in the ``history_days`` before the day, times ``1 + U * s1_amount_spread``.
-  Everything else (type, terminal for CP, addresses, time-of-day model) copies a
-  random recent purchase of the victim, so only the amount is anomalous. A victim
-  with fewer than ``min_history_tx`` recent purchases is skipped.
-- Scenario 2 (skimming): a compromised terminal for ``s2_duration_days``; its CP
-  purchases are labelled, and each victim's card leaks with probability
-  ``s2_leak_prob`` into a scenario-3 campaign some days later (same fraudster).
+  With fewer than ``min_history_tx`` recent purchases, the quantile of all legitimate
+  purchases of the period is used. Everything else (type, terminal for CP,
+  addresses, time-of-day model) copies a purchase of the victim, so only the amount
+  is anomalous.
+- Scenario 2 (skimming): a terminal is compromised for ``s2_duration_days``; it reads
+  the card of each customer making a CP purchase there (the purchase stays
+  legitimate; ``GT_COMPROMISE_ID`` marks it). Some ``s2_use_delay_days_range`` days
+  later, a read card is cloned with probability ``s2_clone_prob`` (a fast sequence of
+  CP purchases near the fraudster, like scenario 4) or, with probability
+  ``s2_leak_prob``, used in a scenario-3 campaign. Both frauds carry the
+  ``GT_COMPROMISE_ID`` of the read.
 - Scenario 3 (card number stolen): ``1 + Poisson(s3_mean_bursts - 1)`` bursts on
   random days of ``s3_duration_days``; each burst has 2-5 CNP purchases within
   ``s3_burst_hours``, shipped to the fraudster, at night with probability
@@ -42,7 +46,12 @@ from ..location import sampling
 from ..location.features import LocationFeatures
 from .transactions import SECONDS_PER_DAY, draw_times_of_day
 
-FRAUD_GT_COLUMNS = ("GT_FRAUD_SCENARIO", "GT_FRAUDSTER_ID", "GT_CAMPAIGN_ID")
+FRAUD_GT_COLUMNS = (
+    "GT_FRAUD_SCENARIO",
+    "GT_FRAUDSTER_ID",
+    "GT_CAMPAIGN_ID",
+    "GT_COMPROMISE_ID",
+)
 NIGHT_END = 6 * 3600
 
 
@@ -59,6 +68,7 @@ class _S3Campaign:
     # purchases are shipped to the tester's location
     first_burst_at_start: bool = False
     location: Optional[tuple[float, float]] = None
+    compromise: int = -1  # scenario-2 read that leaked the card
 
 
 @dataclass
@@ -69,6 +79,7 @@ class _Injected:
 
     def add(self, **values) -> None:
         n = len(values["TX_TIME_SECONDS"])
+        values.setdefault("GT_COMPROMISE_ID", -1)
         for key, value in values.items():
             self.columns.setdefault(key, []).append(
                 np.broadcast_to(np.asarray(value), (n,))
@@ -82,6 +93,7 @@ class _Ids:
     def __init__(self) -> None:
         self.campaigns = 0
         self.fraudsters = 0
+        self.compromises = 0
 
     def campaign(self) -> int:
         self.campaigns += 1
@@ -90,6 +102,10 @@ class _Ids:
     def fraudster(self) -> int:
         self.fraudsters += 1
         return self.fraudsters - 1
+
+    def compromise(self) -> int:
+        self.compromises += 1
+        return self.compromises - 1
 
 
 class _History:
@@ -123,6 +139,16 @@ class _History:
         lo, hi = self._span(customer, t - days * SECONDS_PER_DAY, t)
         return self.order[lo:hi]
 
+    def nearest(self, customer: int, t: float) -> Optional[int]:
+        """The customer's last purchase before ``t``, else its first one after;
+        ``None`` if the customer has no purchase."""
+        lo, hi = self._span(customer, -np.inf, t)
+        if hi > self.starts[customer]:
+            return int(self.order[hi - 1])
+        if self.stops[customer] > self.starts[customer]:
+            return int(self.order[self.starts[customer]])
+        return None
+
     def reference_amount(self, customer: int, t: float, config: FraudConfig) -> float:
         """Median of the recent amounts; the profile mean with too little history."""
         rows = self.recent(customer, t, config.history_days)
@@ -151,10 +177,11 @@ def inject_frauds(
     rngs: dict[int, np.random.Generator],
     n_days: int,
 ) -> dict[str, np.ndarray]:
-    """Label scenario 2 in ``tx`` (in place) and return the injected transactions.
+    """Return the injected transactions.
 
     ``tx`` holds the legitimate transactions in chronological order, with
-    ``TX_FRAUD``, ``TX_FRAUD_SCENARIO``, ``GT_FRAUDSTER_ID`` and ``GT_CAMPAIGN_ID``.
+    ``GT_COMPROMISE_ID`` (``-1``), which scenario 2 fills in place for the purchases
+    whose card was read at a compromised terminal.
     """
     terminals = (
         terminal_profiles["terminal_lat"].to_numpy(),
@@ -168,7 +195,9 @@ def inject_frauds(
     end = n_days * SECONDS_PER_DAY
 
     if 2 in scenarios:
-        s3 += _scenario_2(tx, config, len(terminals[0]), n_days, rngs[2], ids)
+        s3 += _scenario_2(
+            out, history, config, terminals, loc_features, n_days, rngs[2], ids
+        )
     if 5 in scenarios:
         s3 += _scenario_5(
             out, history, config, terminals, loc_features, n_days, rngs[5], ids
@@ -232,6 +261,93 @@ def _fraudster_locations(
     return points["lat"].to_numpy(), points["long"].to_numpy()
 
 
+def _nearby_terminals(
+    lat: float, long: float, terminals, radius_km: float, nearest_fallback: bool
+) -> np.ndarray:
+    """Terminals within ``radius_km`` of a point; with ``nearest_fallback``, the
+    nearest terminal when none is that close."""
+    nearby = np.asarray(
+        sampling.points_within_radius(
+            np.array([lat]), np.array([long]), terminals[0], terminals[1], radius_km
+        )[0],
+        dtype=np.int64,
+    )
+    if len(nearby) == 0 and nearest_fallback:
+        distances = sampling.haversine_km(
+            np.array(lat), np.array(long), terminals[0], terminals[1]
+        )
+        nearby = np.array([int(np.argmin(distances))])
+    return nearby
+
+
+def _card_sequence(
+    out: _Injected,
+    customer: int,
+    tau: int,
+    location: tuple[float, float],
+    nearby: np.ndarray,
+    reference: float,
+    cnp_attempt_prob: float,
+    bill: tuple[float, float],
+    terminals,
+    config: FraudConfig,
+    rng: np.random.Generator,
+    **ground_truth,
+) -> None:
+    """A fraudster holding a card (stolen or cloned) buys fast, from ``tau`` on,
+    until ``s4_max_txs``, a block, the spending limit or 24 h. CP purchases at the
+    ``nearby`` terminals; CNP attempts (probability ``cnp_attempt_prob``, or always
+    if there is no nearby terminal) at random terminals, shipped to ``location``."""
+    mean_gap = config.s4_mean_gap_minutes * 60
+    seconds, amounts, cnp = [], [], []
+    t, total = float(tau), 0.0
+    for _ in range(config.s4_max_txs):
+        amount = float(
+            _cents_up(
+                np.array(
+                    [
+                        reference
+                        * config.s4_amount_factor
+                        * rng.lognormal(0.0, config.amount_log_sigma)
+                    ]
+                )
+            )[0]
+        )
+        if total + amount > config.s4_spending_limit:
+            break
+        seconds.append(int(t))
+        amounts.append(amount)
+        cnp.append(len(nearby) == 0 or rng.random() < cnp_attempt_prob)
+        total += amount
+        if rng.random() < config.s4_block_prob_per_tx:
+            break
+        t += rng.exponential(mean_gap)
+        if t >= tau + SECONDS_PER_DAY:
+            break
+    if not seconds:
+        return
+    is_cnp = np.array(cnp)
+    n = len(seconds)
+    terminal = rng.integers(0, len(terminals[0]), n)
+    if len(nearby):
+        terminal[~is_cnp] = nearby[rng.integers(0, len(nearby), int((~is_cnp).sum()))]
+    term_lat, term_long = terminals[0][terminal], terminals[1][terminal]
+    out.add(
+        TX_TIME_SECONDS=np.array(seconds, dtype=np.int64),
+        CUSTOMER_ID=customer,
+        TERMINAL_ID=terminal,
+        TX_AMOUNT=np.array(amounts),
+        IS_CNP=is_cnp,
+        TX_SHIPP_LAT=np.where(is_cnp, location[0], term_lat),
+        TX_SHIPP_LONG=np.where(is_cnp, location[1], term_long),
+        TX_BILL_LAT=bill[0],
+        TX_BILL_LONG=bill[1],
+        TX_TERM_LAT=term_lat,
+        TX_TERM_LONG=term_long,
+        **ground_truth,
+    )
+
+
 def _scenario_1(
     out: _Injected,
     history: _History,
@@ -244,39 +360,59 @@ def _scenario_1(
     tx = history.tx
     n_customers = len(history.mean_amount)
     counts = config.daily_counts(1, n_customers, n_days, rng)
+    # Reference for victims with too little recent history: all legitimate purchases
+    # of the period (``tx`` holds only legitimate transactions here)
+    population_quantile = (
+        float(np.quantile(tx["TX_AMOUNT"], config.s1_quantile))
+        if len(tx["TX_AMOUNT"])
+        else 0.0
+    )
     for day in range(n_days):
         for customer in _victims(n_customers, counts[day], rng):
+            customer = int(customer)
             day_start = day * SECONDS_PER_DAY
-            rows = history.recent(int(customer), day_start, config.history_days)
-            if len(rows) < config.min_history_tx or len(rows) == 0:
-                continue
-            threshold = config.s1_amount_factor * float(
-                np.quantile(tx["TX_AMOUNT"][rows], config.s1_quantile)
-            )
+            rows = history.recent(customer, day_start, config.history_days)
+            if len(rows) >= max(config.min_history_tx, 1):
+                quantile = float(np.quantile(tx["TX_AMOUNT"][rows], config.s1_quantile))
+            else:
+                quantile = population_quantile
+            threshold = config.s1_amount_factor * quantile
             u = 1.0 - rng.random()  # (0, 1]
             amount = _cents_up(
                 np.array([threshold * (1 + u * config.s1_amount_spread)])
             )
-            model = int(
-                rows[rng.integers(len(rows))]
-            )  # purchase whose context is copied
-            is_cnp = np.array([tx["IS_CNP"][model]])
+            # Purchase whose context is copied: a recent one, else the nearest in
+            # time; a customer without any purchase gets a CNP purchase from its
+            # profile
+            model: Optional[int] = (
+                int(rows[rng.integers(len(rows))])
+                if len(rows)
+                else history.nearest(customer, day_start)
+            )
+            if model is not None:
+                is_cnp = np.array([tx["IS_CNP"][model]])
+                shipping = (tx["TX_SHIPP_LAT"][model], tx["TX_SHIPP_LONG"][model])
+                billing = (tx["TX_BILL_LAT"][model], tx["TX_BILL_LONG"][model])
+            else:
+                is_cnp = np.array([True])
+                billing = history.billing_at(customer, day_start)
+                shipping = billing
             seconds = day_start + draw_times_of_day(is_cnp, rng)
             terminal = (
                 np.array([rng.integers(len(terminals[0]))])
-                if is_cnp[0]
+                if is_cnp[0] or model is None
                 else np.array([tx["TERMINAL_ID"][model]])
             )
             out.add(
                 TX_TIME_SECONDS=seconds,
-                CUSTOMER_ID=int(customer),
+                CUSTOMER_ID=customer,
                 TERMINAL_ID=terminal,
                 TX_AMOUNT=amount,
                 IS_CNP=is_cnp,
-                TX_SHIPP_LAT=tx["TX_SHIPP_LAT"][model],
-                TX_SHIPP_LONG=tx["TX_SHIPP_LONG"][model],
-                TX_BILL_LAT=tx["TX_BILL_LAT"][model],
-                TX_BILL_LONG=tx["TX_BILL_LONG"][model],
+                TX_SHIPP_LAT=shipping[0],
+                TX_SHIPP_LONG=shipping[1],
+                TX_BILL_LAT=billing[0],
+                TX_BILL_LONG=billing[1],
                 TX_TERM_LAT=terminals[0][terminal],
                 TX_TERM_LONG=terminals[1][terminal],
                 TX_FRAUD_SCENARIO=1,
@@ -286,14 +422,19 @@ def _scenario_1(
 
 
 def _scenario_2(
-    tx: dict,
+    out: _Injected,
+    history: _History,
     config: FraudConfig,
-    n_terminals: int,
+    terminals,
+    loc_features: LocationFeatures,
     n_days: int,
     rng: np.random.Generator,
     ids: _Ids,
 ) -> list[_S3Campaign]:
-    """Label the CP purchases at compromised terminals; return the leaked cards."""
+    """Compromised terminals read cards; cloned cards are used near the fraudster.
+    Returns the scenario-3 campaigns of the leaked cards."""
+    tx = history.tx
+    n_terminals = len(terminals[0])
     counts = config.daily_counts(2, n_terminals, n_days, rng)
     keys = tx["TERMINAL_ID"]
     order = np.argsort(keys, kind="stable")
@@ -301,39 +442,75 @@ def _scenario_2(
     starts = np.searchsorted(sorted_keys, np.arange(n_terminals), side="left")
     stops = np.searchsorted(sorted_keys, np.arange(n_terminals), side="right")
     days = tx["TX_TIME_DAYS"]
-    low, high = config.s2_leak_delay_days_range
+    low, high = config.s2_use_delay_days_range
+    compromised_until = np.zeros(n_terminals, dtype=np.int64)
     leaked: list[_S3Campaign] = []
     for day in range(n_days):
         n = min(int(counts[day]), n_terminals)
         for terminal in rng.choice(n_terminals, size=n, replace=False):
+            if compromised_until[terminal] > day:
+                continue  # already compromised
+            compromised_until[terminal] = day + config.s2_duration_days
             rows = order[starts[terminal] : stops[terminal]]
             rows = rows[
                 (days[rows] >= day)
                 & (days[rows] < day + config.s2_duration_days)
                 & ~tx["IS_CNP"][rows]
-                & (tx["TX_FRAUD"][rows] == 0)
             ]
-            fraudster, campaign = ids.fraudster(), ids.campaign()
-            tx["TX_FRAUD"][rows] = 1
-            tx["TX_FRAUD_SCENARIO"][rows] = 2
-            tx["GT_FRAUDSTER_ID"][rows] = fraudster
-            tx["GT_CAMPAIGN_ID"][rows] = campaign
-            # Each victim's card is read once (its first purchase there)
-            victims, first = np.unique(tx["CUSTOMER_ID"][rows], return_index=True)
-            leak = rng.random(len(victims)) < config.s2_leak_prob
-            delays = rng.integers(low, high + 1, len(victims))
-            for customer, row, delay in zip(
-                victims[leak], rows[first][leak], delays[leak]
-            ):
-                start_day = int(days[row]) + int(delay)
-                leaked.append(
-                    _S3Campaign(
-                        int(customer),
-                        start_day * SECONDS_PER_DAY,
-                        fraudster,
-                        ids.campaign(),
+            # Each customer's card is read once: at its first purchase there
+            customers, first = np.unique(tx["CUSTOMER_ID"][rows], return_index=True)
+            reads = rows[first]
+            fraudster = ids.fraudster()
+            location: Optional[tuple[float, float]] = None
+            u = rng.random(len(reads))
+            delays = rng.integers(low, high + 1, len(reads))
+            for customer, row, ui, delay in zip(customers, reads, u, delays):
+                compromise = ids.compromise()
+                tx["GT_COMPROMISE_ID"][row] = compromise
+                use_day = int(days[row]) + int(delay)
+                if use_day >= n_days:
+                    continue
+                customer = int(customer)
+                if ui < config.s2_clone_prob:
+                    if location is None:
+                        lat, long = _fraudster_locations(1, loc_features, rng)
+                        location = (float(lat[0]), float(long[0]))
+                    tau = use_day * SECONDS_PER_DAY + int(
+                        rng.integers(0, SECONDS_PER_DAY)
                     )
-                )
+                    _card_sequence(
+                        out,
+                        customer,
+                        tau,
+                        location,
+                        _nearby_terminals(
+                            location[0],
+                            location[1],
+                            terminals,
+                            loc_features.available_terminals_radius,
+                            nearest_fallback=True,
+                        ),
+                        history.reference_amount(customer, tau, config),
+                        0.0,  # a cloned card is a physical card: CP only
+                        history.billing_at(customer, tau),
+                        terminals,
+                        config,
+                        rng,
+                        TX_FRAUD_SCENARIO=2,
+                        GT_FRAUDSTER_ID=fraudster,
+                        GT_CAMPAIGN_ID=ids.campaign(),
+                        GT_COMPROMISE_ID=compromise,
+                    )
+                elif ui < config.s2_clone_prob + config.s2_leak_prob:
+                    leaked.append(
+                        _S3Campaign(
+                            customer,
+                            use_day * SECONDS_PER_DAY,
+                            fraudster,
+                            ids.campaign(),
+                            compromise=compromise,
+                        )
+                    )
     return leaked
 
 
@@ -397,6 +574,7 @@ def _scenario_3(
             TX_FRAUD_SCENARIO=3,
             GT_FRAUDSTER_ID=c.fraudster,
             GT_CAMPAIGN_ID=c.campaign,
+            GT_COMPROMISE_ID=c.compromise,
         )
 
 
@@ -412,81 +590,38 @@ def _scenario_4(
 ) -> None:
     n_customers = len(history.mean_amount)
     counts = config.daily_counts(4, n_customers, n_days, rng)
-    mean_gap = config.s4_mean_gap_minutes * 60
     for day in range(n_days):
         for customer in _victims(n_customers, counts[day], rng):
             customer = int(customer)
             tau = day * SECONDS_PER_DAY + int(rng.integers(0, SECONDS_PER_DAY))
-            bill_lat, bill_long = history.billing_at(customer, tau)
+            bill = history.billing_at(customer, tau)
             # The fraudster is in the victim's city
             lat, long = sampling.random_points_around(
-                np.array([bill_lat]),
-                np.array([bill_long]),
+                np.array([bill[0]]),
+                np.array([bill[1]]),
                 loc_features.city_radius,
                 loc_features.data["brazil_polygon"],
                 rng,
             )
-            nearby = np.asarray(
-                sampling.points_within_radius(
-                    lat,
-                    long,
-                    terminals[0],
-                    terminals[1],
+            location = (float(lat[0]), float(long[0]))
+            _card_sequence(
+                out,
+                customer,
+                tau,
+                location,
+                _nearby_terminals(
+                    location[0],
+                    location[1],
+                    terminals,
                     loc_features.available_terminals_radius,
-                )[0],
-                dtype=np.int64,
-            )
-            reference = history.reference_amount(customer, tau, config)
-
-            seconds, amounts, cnp = [], [], []
-            t, total = float(tau), 0.0
-            for _ in range(config.s4_max_txs):
-                amount = float(
-                    _cents_up(
-                        np.array(
-                            [
-                                reference
-                                * config.s4_amount_factor
-                                * rng.lognormal(0.0, config.amount_log_sigma)
-                            ]
-                        )
-                    )[0]
-                )
-                if total + amount > config.s4_spending_limit:
-                    break
-                seconds.append(int(t))
-                amounts.append(amount)
-                cnp.append(
-                    len(nearby) == 0 or rng.random() < config.s4_cnp_attempt_prob
-                )
-                total += amount
-                if rng.random() < config.s4_block_prob_per_tx:
-                    break
-                t += rng.exponential(mean_gap)
-                if t >= tau + SECONDS_PER_DAY:
-                    break
-            if not seconds:
-                continue
-            is_cnp = np.array(cnp)
-            n = len(seconds)
-            terminal = rng.integers(0, len(terminals[0]), n)
-            if len(nearby):
-                terminal[~is_cnp] = nearby[
-                    rng.integers(0, len(nearby), int((~is_cnp).sum()))
-                ]
-            term_lat, term_long = terminals[0][terminal], terminals[1][terminal]
-            out.add(
-                TX_TIME_SECONDS=np.array(seconds, dtype=np.int64),
-                CUSTOMER_ID=customer,
-                TERMINAL_ID=terminal,
-                TX_AMOUNT=np.array(amounts),
-                IS_CNP=is_cnp,
-                TX_SHIPP_LAT=np.where(is_cnp, lat[0], term_lat),
-                TX_SHIPP_LONG=np.where(is_cnp, long[0], term_long),
-                TX_BILL_LAT=bill_lat,
-                TX_BILL_LONG=bill_long,
-                TX_TERM_LAT=term_lat,
-                TX_TERM_LONG=term_long,
+                    nearest_fallback=False,
+                ),
+                history.reference_amount(customer, tau, config),
+                config.s4_cnp_attempt_prob,
+                bill,
+                terminals,
+                config,
+                rng,
                 TX_FRAUD_SCENARIO=4,
                 GT_FRAUDSTER_ID=ids.fraudster(),
                 GT_CAMPAIGN_ID=ids.campaign(),

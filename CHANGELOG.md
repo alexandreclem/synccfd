@@ -8,12 +8,14 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 - **Fraud injection** (`FraudConfig(mechanism="inject")`, v2 engine): fraudsters make
-  new transactions instead of altering or labelling legitimate ones (except the CP
-  purchases at a compromised terminal, scenario 2). Scenario 1 becomes a purchase far
-  above the victim's recent amounts. Scenario 2 leaks cards to scenario 3. Scenario 3
-  makes bursts of CNP purchases, and scenario 4 a fast sequence of purchases. The new
-  scenario 5 (card testing) can escalate to scenario 3. Ground truth:
-  `GT_FRAUD_SCENARIO`, `GT_FRAUDSTER_ID`, `GT_CAMPAIGN_ID`.
+  new transactions instead of altering or labelling legitimate ones. Scenario 1
+  becomes a purchase far above the victim's recent amounts. In scenario 2, a
+  compromised terminal reads cards (the purchases stay legitimate); the cards are
+  later cloned or leaked to scenario 3. Scenario 3 makes bursts of CNP purchases, and
+  scenario 4 a fast sequence of purchases. The new scenario 5 (card testing) can
+  escalate to scenario 3. Ground truth: `GT_FRAUD_SCENARIO`, `GT_FRAUDSTER_ID`,
+  `GT_CAMPAIGN_ID`, `GT_COMPROMISE_ID`; `ground_truth.compromise_table()` lists the
+  compromised cards.
 - `IntensitySchedule` and `FraudConfig.intensity_schedule`: fraud rates that change
   over time. `FraudConfig.realistic()`: all five scenarios, proportional rates and
   fraudster drift.

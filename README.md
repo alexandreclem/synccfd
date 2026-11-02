@@ -246,7 +246,7 @@ type.
 
 With `FraudConfig(mechanism="inject")` (v2 engine), fraudsters make **new**
 transactions, added to the customers' own ones. Legitimate transactions are never
-altered, so a victim's history stays intact. `FraudConfig.realistic()` enables all
+altered nor labelled as fraud, so a victim's history stays intact. `FraudConfig.realistic()` enables all
 five scenarios with rates proportional to the population:
 
 ```python
@@ -262,7 +262,7 @@ customer_profiles, terminal_profiles, transactions = generator.generate()
 | # | Scenario | What the fraudster does |
 | --- | --- | --- |
 | 1 | Anomalous amount | One purchase far above the victim's recent amounts (2 × their 95th percentile over the last 30 days, or more). Unlike the fixed threshold, it does not label customers who legitimately spend more. |
-| 2 | Compromised terminal | The CP purchases at a compromised terminal are fraud (the only scenario that labels legitimate transactions); some of the cards read there are used in scenario 3 days later |
+| 2 | Compromised terminal | A compromised terminal reads the cards of the customers who buy there (those purchases stay legitimate). Days later, some read cards are cloned (a fast sequence of CP purchases near the fraudster) and others leak to scenario 3 |
 | 3 | Stolen card number | Bursts of 2–5 CNP purchases within hours, shipped to the fraudster, often at night, above the victim's usual amounts |
 | 4 | Stolen physical card | A fast sequence of purchases near the victim's city, until the card is blocked, a spending limit is reached or 24 h have passed |
 | 5 | Card testing | 3–10 CNP purchases of R$ 1–5 within minutes; half of the time the fraudster goes on to scenario 3 with the same card |
@@ -271,9 +271,12 @@ customer_profiles, terminal_profiles, transactions = generator.generate()
 `IntensitySchedule("step" | "ramp" | "pulse" | "constant", start, end, base, level)`,
 with times as fractions of the period. In `FraudConfig.realistic()`, scenario 2
 halves from 60% of the period on and scenario 5 starts at 30%. With injection, the
-transactions get `GT_FRAUD_SCENARIO`, `GT_FRAUDSTER_ID` and `GT_CAMPAIGN_ID` (the
-transactions of one attack, e.g. card testing and the purchases that follow);
-injected transactions have no `GT_REGIME`. See
+transactions get `GT_FRAUD_SCENARIO`, `GT_FRAUDSTER_ID`, `GT_CAMPAIGN_ID` (the
+transactions of one attack, e.g. card testing and the purchases that follow) and
+`GT_COMPROMISE_ID`. The last one marks the legitimate purchase where a card was read
+at a compromised terminal and the frauds later made with that card;
+`synccfd.simulator.ground_truth.compromise_table(transactions)` lists the
+compromises. Injected transactions have no `GT_REGIME`. See
 [`examples/frauds.ipynb`](examples/frauds.ipynb).
 
 ## Reproducibility & scope
