@@ -1,4 +1,4 @@
-"""Merchants and categories (v2 engine, ``MerchantConfig``).
+"""Merchants and categories (``MerchantConfig``).
 
 - Physical merchants own the terminals: in each city, the terminals are shuffled and
   cut into merchants of ``1 + Poisson(extra_terminals_mean)`` terminals; the category

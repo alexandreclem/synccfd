@@ -1,4 +1,4 @@
-"""Fraud injection (v2 engine, ``FraudConfig(mechanism="inject")``).
+"""Fraud injection: the scenarios of ``FraudConfig``.
 
 Fraudsters make *new* transactions, added to the customers' legitimate ones; a
 legitimate transaction is never altered nor labelled as fraud. Each scenario draws
@@ -275,7 +275,9 @@ def inject_frauds(
                         ids.campaign(),
                     )
                 )
-    if s3:
+    # Cards leaked by scenario 2 and escalations of scenario 5 become scenario-3
+    # campaigns only when scenario 3 is enabled
+    if s3 and 3 in scenarios:
         _scenario_3(out, history, config, terminals, loc_features, s3, n_days, rngs[3])
     if 4 in scenarios:
         _scenario_4(out, history, config, terminals, loc_features, n_days, rngs[4], ids)

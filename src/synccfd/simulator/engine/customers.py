@@ -1,4 +1,4 @@
-"""Customer profiles (v2 engine). Same model as v0.1."""
+"""Customer profiles. Same model as v0.1."""
 
 import numpy as np
 import pandas as pd

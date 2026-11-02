@@ -1,103 +1,115 @@
-"""Public entry point: ``DatasetGenerator`` chooses the legacy or the v2 engine."""
+"""Public entry point: ``DatasetGenerator``."""
 
 import datetime
-from typing import Optional
+import json
+import os
+from dataclasses import dataclass
+from typing import Any, Optional
 
 import pandas as pd
 
 from synccfd.utils.data import DataManager
 
-from . import engine as v2
-from .config import DriftConfig, FraudConfig, MerchantConfig, SeasonalityConfig
-from .legacy.fraud import FraudSimulator
-from .legacy.generator import _TransactionGenerator
+from . import engine
+from .config import (
+    DriftConfig,
+    FraudConfig,
+    MerchantConfig,
+    SeasonalityConfig,
+    to_jsonable,
+)
 from .location.features import LocationFeatures
 
-ENGINES = ("auto", "legacy", "v2")
+# Default components: every component on, as in ``presets.realistic()`` (the
+# configurations are frozen, so sharing one instance is safe).
+DEFAULT_FRAUD = FraudConfig.realistic()
+DEFAULT_DRIFT = DriftConfig()
+DEFAULT_SEASONALITY = SeasonalityConfig()
+DEFAULT_MERCHANTS = MerchantConfig()
+# No fraud at all (``fraud=None``)
+NO_FRAUD = FraudConfig(scenarios=())
+
+
+@dataclass
+class SimulationResult:
+    """Everything one simulation produces (:meth:`DatasetGenerator.generate_all`).
+
+    Attributes:
+        customers: Customer profiles.
+        terminals: Terminal profiles.
+        merchants: Merchant profiles, or ``None`` without merchants.
+        transactions: Labelled transactions.
+        config: The effective configuration, JSON-serialisable (also written to
+            ``config.json`` by :meth:`DatasetGenerator.save`).
+    """
+
+    customers: pd.DataFrame
+    terminals: pd.DataFrame
+    merchants: Optional[pd.DataFrame]
+    transactions: pd.DataFrame
+    config: dict[str, Any]
 
 
 class DatasetGenerator:
     """Main entry point for generating synthetic credit card fraud datasets.
 
-    This class provides a simple interface to generate synthetic credit card
-    transaction datasets including customer profiles, terminal profiles, and
-    transactions with fraud labels.
+    The defaults are the complete simulator, the same as ``presets.realistic()``:
+    merchants and categories, customer concept drift, seasonality and fraud
+    injection with fraudster drift (``FraudConfig.realistic()``), for 10 000
+    customers, 20 000 terminals and 180 days from 2023-01-01. Pass ``None`` to
+    switch a component off (``fraud=None``: no fraud at all).
 
-    The generator creates realistic transaction patterns based on:
-    - Customer location and spending habits
-    - Terminal distribution across cities
-    - Time-based transaction patterns (different for CP vs CNP transactions)
-    - Four different fraud scenarios
-
-    Two engines produce the data:
-
-    - ``"legacy"``: the v0.1.0 code, unchanged; with the default configuration it
-      reproduces v0.1.0 exactly.
-    - ``"v2"``: a vectorised engine with the same model, drawing only from local
-      random streams derived from ``random_state`` (the global ``random`` and
-      ``numpy.random`` states are never used). It reproduces the v0.1 model
-      statistically, not draw by draw.
-
-    ``engine="auto"`` (default) uses ``"legacy"`` unless a component that only the
-    v2 engine supports is enabled: ``drift``, ``seasonality``, ``merchants`` or
-    fraud injection
-    (``FraudConfig(mechanism="inject")``).
+    All randomness comes from local random streams derived from ``random_state``;
+    the global ``random`` and ``numpy.random`` states are never used.
 
     Example:
-        >>> generator = DatasetGenerator(n_customers=1000, n_terminals=10000)
+        >>> generator = DatasetGenerator(n_customers=1000, n_terminals=2000)
         >>> customer_profiles, terminal_profiles, transactions = generator.generate()
         >>> print(f"Generated {len(transactions)} transactions")
     """
 
     def __init__(
         self,
-        n_customers: int = 10000,
-        n_terminals: int = 20000,
-        nb_days: int = 90,
+        n_customers: int = 10_000,
+        n_terminals: int = 20_000,
+        nb_days: int = 180,
         city_radius: float = 12.0,
         available_terminals_radius: float = 10.0,
-        start_date: str = "2018-04-01",
+        start_date: str = "2023-01-01",
         random_state: Optional[int] = 42,
-        fraud: Optional[FraudConfig] = None,
-        drift: Optional[DriftConfig] = None,
-        seasonality: Optional[SeasonalityConfig] = None,
-        merchants: Optional[MerchantConfig] = None,
-        engine: str = "auto",
+        fraud: Optional[FraudConfig] = DEFAULT_FRAUD,
+        drift: Optional[DriftConfig] = DEFAULT_DRIFT,
+        seasonality: Optional[SeasonalityConfig] = DEFAULT_SEASONALITY,
+        merchants: Optional[MerchantConfig] = DEFAULT_MERCHANTS,
     ):
         """Initialize DatasetGenerator.
 
         Args:
-            n_customers: Number of customers to generate. Defaults to 10000.
-            n_terminals: Number of terminals to generate. Defaults to 20000.
-            nb_days: Number of days to generate transactions for. Defaults to 90.
+            n_customers: Number of customers. Defaults to 10 000.
+            n_terminals: Number of physical terminals. Defaults to 20 000.
+            nb_days: Number of days of transactions. Defaults to 180.
             city_radius: Radius (km) from a city center used to place customers
                 and terminals. Defaults to 12.0.
             available_terminals_radius: Radius (km) around a customer within which
                 terminals are reachable for Card-Present transactions. Defaults to 10.0.
-            start_date: Start date for transaction generation (``YYYY-MM-DD``).
-                Defaults to '2018-04-01'.
-            random_state: Random seed for reproducibility. Defaults to 42.
-            fraud: Fraud scenario parameters. Defaults to ``FraudConfig()``, which
-                reproduces v0.1.0.
-            drift: Customer concept drift (v2 engine only). ``None`` (default)
+            start_date: First day (``YYYY-MM-DD``). Defaults to '2023-01-01'.
+            random_state: Seed of every random draw. Defaults to 42.
+            fraud: Fraud scenarios. Defaults to ``FraudConfig.realistic()``;
+                ``None``: no fraud.
+            drift: Customer concept drift. Defaults to ``DriftConfig()``; ``None``
                 disables it.
-            seasonality: Calendar patterns (v2 engine only). ``None`` (default)
-                disables them.
-            merchants: Merchants and categories (v2 engine only). ``None``
-                (default) disables them. With merchants, the transactions get
+            seasonality: Calendar patterns. Defaults to ``SeasonalityConfig()``;
+                ``None`` disables them.
+            merchants: Merchants and categories. Defaults to ``MerchantConfig()``;
+                ``None`` disables them. With merchants, the transactions get
                 ``MERCHANT_ID`` and ``MERCHANT_CATEGORY``, the terminal profiles get
                 ``MERCHANT_ID``, and ``merchant_profiles`` is filled by
                 :meth:`generate`.
-            engine: ``"auto"``, ``"legacy"`` or ``"v2"`` (see the class docstring).
-                Defaults to ``"auto"``.
         """
-        if engine not in ENGINES:
-            raise ValueError(f"engine must be one of {ENGINES}, got {engine!r}.")
-        self.fraud_config = fraud if fraud is not None else FraudConfig()
+        self.fraud_config = fraud
         self.drift_config = drift
         self.seasonality_config = seasonality
         self.merchant_config = merchants
-        self.engine = self._resolve_engine(engine)
         self.n_customers = n_customers
         self.n_terminals = n_terminals
         self.nb_days = nb_days
@@ -113,128 +125,68 @@ class DatasetGenerator:
         self.merchant_profiles: Optional[pd.DataFrame] = None
         self._loc_features: Optional[LocationFeatures] = None
 
-        if self.engine == "v2":
-            # The v2 engine builds everything in generate() and never touches the
-            # global random state.
-            self.generator: Optional[_TransactionGenerator] = None
-            self.fraud_simulator: Optional[FraudSimulator] = None
-            return
+    @property
+    def config(self) -> dict[str, Any]:
+        """The effective configuration as plain JSON types, with the version of
+        ``synccfd`` (written to ``config.json`` by :meth:`save`)."""
+        from synccfd import __version__
 
-        # The legacy engine seeds the global random state here, as v0.1 does.
-        self.generator = _TransactionGenerator(
-            n_customers=n_customers,
-            n_terminals=n_terminals,
-            nb_days=nb_days,
-            city_radius=city_radius,
-            available_terminals_radius=available_terminals_radius,
-            start_date=start_date,
-            random_state=random_state,
-        )
-        self.fraud_simulator = FraudSimulator(
-            random_state=random_state, config=self.fraud_config
-        )
+        return {
+            "synccfd_version": __version__,
+            "n_customers": self.n_customers,
+            "n_terminals": self.n_terminals,
+            "nb_days": self.nb_days,
+            "city_radius": self.city_radius,
+            "available_terminals_radius": self.available_terminals_radius,
+            "start_date": self.start_date,
+            "random_state": self.random_state,
+            "fraud": to_jsonable(self.fraud_config),
+            "drift": to_jsonable(self.drift_config),
+            "seasonality": to_jsonable(self.seasonality_config),
+            "merchants": to_jsonable(self.merchant_config),
+        }
 
-    def _resolve_engine(self, engine: str) -> str:
-        v2_only = [
-            name
-            for name, value in (
-                ("drift", self.drift_config),
-                ("seasonality", self.seasonality_config),
-                ("merchants", self.merchant_config),
-                (
-                    'fraud mechanism="inject"',
-                    self.fraud_config
-                    if self.fraud_config.mechanism == "inject"
-                    else None,
-                ),
-            )
-            if value is not None
-        ]
-        if engine == "auto":
-            return "v2" if v2_only else "legacy"
-        if engine == "legacy" and v2_only:
-            raise ValueError(
-                f"{', '.join(v2_only)} require(s) the v2 engine; "
-                'use engine="v2" or engine="auto".'
-            )
-        return engine
+    def generate_all(self) -> SimulationResult:
+        """Generate the dataset, like :meth:`generate`, and return everything in a
+        :class:`SimulationResult` (with the merchants and the configuration)."""
+        customers, terminals, transactions = self.generate()
+        return SimulationResult(
+            customers=customers,
+            terminals=terminals,
+            merchants=self.merchant_profiles,
+            transactions=transactions,
+            config=self.config,
+        )
 
     def generate(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Generate the complete dataset (profiles + labelled transactions).
 
-        The generator follows these steps:
-        1. Generate customer profiles with random locations and spending patterns
-        2. Generate terminal profiles with locations across cities
-        3. Generate legitimate transactions based on customer-terminal proximity
-        4. Add fraudulent transactions based on different fraud scenarios
-
         Returns:
-            Tuple containing:
-            - customer_profiles (pd.DataFrame): Customer information with columns:
-                - CUSTOMER_ID: Unique customer identifier
-                - billing_lat, billing_long: Customer billing location
-                - mean_amount, std_amount: Parameters for transaction amount generation
-                - mean_nb_tx_per_day: Average number of transactions per day
-                - cnp_prob: Probability of Card Not Present transactions
-            - terminal_profiles (pd.DataFrame): Terminal information with columns:
-                - TERMINAL_ID: Unique terminal identifier
-                - terminal_lat, terminal_long: Terminal location coordinates
-            - transactions (pd.DataFrame): Transaction data with columns:
-                - TRANSACTION_ID: Unique transaction identifier
-                - TX_DATETIME: Transaction timestamp
-                - TX_TIME_SECONDS: Time in seconds since start date
-                - TX_TIME_DAYS: Time in days since start date
-                - CUSTOMER_ID: Customer who made the transaction
-                - TERMINAL_ID: Terminal where transaction was made
-                - TX_AMOUNT: Transaction amount
-                - TX_BILL_LAT, TX_BILL_LONG: billing address coordinates
-                - TX_SHIPP_LAT, TX_SHIPP_LONG: shipping address coordinates
-                - TX_TERM_LAT, TX_TERM_LONG: terminal location coordinates
-                - TX_TYPE: Transaction type (CP: Card Present, CNP: Card Not Present)
-                - TX_FRAUD: Binary fraud indicator
-                - TX_FRAUD_SCENARIO: Type of fraud (0: legitimate, 1-4: fraud scenarios;
-                  5 with fraud injection)
+            ``(customer_profiles, terminal_profiles, transactions)``. The columns are
+            described in the documentation ("Output"); columns starting with ``GT_``
+            are ground truth and must never be used as model inputs.
         """
-        if self.engine == "v2":
-            result = v2.simulate(
-                n_customers=self.n_customers,
-                n_terminals=self.n_terminals,
-                nb_days=self.nb_days,
-                city_radius=self.city_radius,
-                available_terminals_radius=self.available_terminals_radius,
-                start_date=datetime.datetime.strptime(self.start_date, "%Y-%m-%d"),
-                random_state=self.random_state,
-                fraud=self.fraud_config,
-                drift=self.drift_config,
-                seasonality=self.seasonality_config,
-                merchants=self.merchant_config,
-            )
-            self.merchant_profiles = result.merchant_profiles
-            customer_profiles = result.customer_profiles
-            terminal_profiles = result.terminal_profiles
-            transactions = result.transactions
-            self._loc_features = result.loc_features
-        else:
-            assert self.generator is not None and self.fraud_simulator is not None
-            customer_profiles = self.generator.generate_customer_profiles()
-            terminal_profiles = self.generator.generate_terminal_profiles()
-            transactions = self.generator.generate_transactions()
-
-            print("\nAdding fraudulent transactions:")
-            transactions = self.fraud_simulator.add_frauds(
-                customer_profiles,
-                terminal_profiles,
-                transactions,
-                self.generator.loc_features,
-            )
-            print("\nDataset generation completed!")
+        result = engine.simulate(
+            n_customers=self.n_customers,
+            n_terminals=self.n_terminals,
+            nb_days=self.nb_days,
+            city_radius=self.city_radius,
+            available_terminals_radius=self.available_terminals_radius,
+            start_date=datetime.datetime.strptime(self.start_date, "%Y-%m-%d"),
+            random_state=self.random_state,
+            fraud=self.fraud_config if self.fraud_config is not None else NO_FRAUD,
+            drift=self.drift_config,
+            seasonality=self.seasonality_config,
+            merchants=self.merchant_config,
+        )
+        self.merchant_profiles = result.merchant_profiles
+        self._loc_features = result.loc_features
 
         # Cache the last result so save() can be called without re-generating.
-        self.customer_profiles = customer_profiles
-        self.terminal_profiles = terminal_profiles
-        self.transactions = transactions
-
-        return customer_profiles, terminal_profiles, transactions
+        self.customer_profiles = result.customer_profiles
+        self.terminal_profiles = result.terminal_profiles
+        self.transactions = result.transactions
+        return result.customer_profiles, result.terminal_profiles, result.transactions
 
     def save(
         self,
@@ -244,9 +196,9 @@ class DatasetGenerator:
     ) -> None:
         """Persist the most recently generated dataset to disk.
 
-        Writes customer/terminal (and, with merchants, merchant) profiles and
-        (day-partitioned) transactions under ``output_dir``. Call :meth:`generate`
-        first.
+        Writes customer/terminal (and, with merchants, merchant) profiles,
+        (day-partitioned) transactions and the configuration (``config.json``, see
+        :attr:`config`) under ``output_dir``. Call :meth:`generate` first.
 
         Args:
             output_dir: Base directory to write the dataset into. Defaults to 'data'.
@@ -268,6 +220,8 @@ class DatasetGenerator:
             save_format=save_format,
             save_by_day=save_by_day,
         )
+        with open(os.path.join(output_dir, "config.json"), "w", encoding="utf-8") as f:
+            json.dump(self.config, f, indent=2, ensure_ascii=False)
         print(f"Dataset saved to '{output_dir}'.")
 
     def read_transactions(
@@ -302,8 +256,6 @@ class DatasetGenerator:
 
     def get_location_features(self) -> LocationFeatures:
         """Geographic data and locations used by the last generated dataset."""
-        if self.generator is not None:
-            return self.generator.loc_features
         if self._loc_features is None:
             raise RuntimeError("Call generate() first.")
         return self._loc_features

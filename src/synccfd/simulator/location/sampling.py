@@ -1,7 +1,7 @@
 """Vectorised geographic sampling with an explicit ``numpy.random.Generator``.
 
-Used by the v2 engine. The legacy engine keeps the per-point functions in
-``features.py`` (geopy + the global ``random`` module).
+Used by ``LocationFeatures`` and the fraud scenarios; the global ``random`` and
+``numpy.random`` states are never used.
 """
 
 from typing import Any
@@ -46,9 +46,8 @@ def random_points_around(
 ) -> tuple[np.ndarray, np.ndarray]:
     """One random point per center, inside ``polygon``.
 
-    Same model as ``features.random_point_around_a_center``: distance uniform in
-    ``[0, radius_km]``, bearing uniform in ``[0, 360)``; points outside the polygon
-    are redrawn.
+    Distance uniform in ``[0, radius_km]``, bearing uniform in ``[0, 360)``; points
+    outside the polygon are redrawn.
     """
     center_lat = np.asarray(center_lat, dtype=float)
     center_long = np.asarray(center_long, dtype=float)
@@ -85,8 +84,7 @@ def random_points_around_cities(
 ) -> dict[str, pd.DataFrame]:
     """Population-weighted cities, then one random point around each.
 
-    Vectorised counterpart of ``features.gen_random_points``; returns the same
-    structure (``random_points`` with ``lat``/``long`` and the sampled ``cities``).
+    Returns ``random_points`` (``lat``/``long``) and the sampled ``cities``.
     """
     weights = cities["pop_21"].to_numpy(dtype=float)
     chosen = rng.choice(

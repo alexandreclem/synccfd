@@ -1,4 +1,4 @@
-"""Customer concept drift (v2 engine): regimes A and B and the weight ``w(t)``.
+"""Customer concept drift: regimes A and B and the weight ``w(t)``.
 
 Every customer has regime A (its profile). A drifting customer also has regime B,
 drawn from A (see ``DriftConfig``), and a drift type that defines ``w(t)``, the

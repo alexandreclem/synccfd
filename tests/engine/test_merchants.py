@@ -25,6 +25,11 @@ PARAMS = {
     "nb_days": 90,
     "start_date": "2023-01-01",
     "random_state": 42,
+    # Components off unless a test switches them on
+    "fraud": None,
+    "drift": None,
+    "seasonality": None,
+    "merchants": None,
 }
 CATEGORIES = {c.name: c for c in DEFAULT_CATEGORIES}
 # Many victims, so each scenario has enough frauds in a small dataset
@@ -113,10 +118,7 @@ def test_invalid_merchant_config_raises(kwargs):
         MerchantConfig(**kwargs)
 
 
-def test_merchants_require_v2_and_known_fraud_categories():
-    assert DatasetGenerator(merchants=MerchantConfig(), n_customers=5).engine == "v2"
-    with pytest.raises(ValueError):
-        DatasetGenerator(merchants=MerchantConfig(), engine="legacy")
+def test_fraud_categories_must_be_known():
     with pytest.raises(ValueError):
         _generate(
             n_customers=20,
@@ -129,7 +131,7 @@ def test_merchants_require_v2_and_known_fraud_categories():
 
 def test_without_merchants_nothing_changes():
     customers, terminals, transactions, merchants = _generate(
-        n_customers=100, n_terminals=200, nb_days=10, engine="v2"
+        n_customers=100, n_terminals=200, nb_days=10
     )
     assert merchants is None
     assert "MERCHANT_ID" not in transactions and "MERCHANT_ID" not in terminals
@@ -390,14 +392,6 @@ def test_scenarios_4_and_5_categories(shop_fraud):
     assert len(s5) > 0 and (s5.MERCHANT_CATEGORY == "servicos_digitais").all()
     # Card testing at one merchant per campaign
     assert (s5.groupby("GT_CAMPAIGN_ID").MERCHANT_ID.nunique() == 1).all()
-
-
-def test_tamper_works_with_merchants():
-    _, _, transactions, _ = _generate(
-        n_customers=300, n_terminals=600, nb_days=30, merchants=MerchantConfig()
-    )
-    assert set(transactions.TX_FRAUD_SCENARIO) >= {0, 1}
-    assert transactions.MERCHANT_CATEGORY.notna().all()
 
 
 def test_reproducible_and_saved(shop, tmp_path):

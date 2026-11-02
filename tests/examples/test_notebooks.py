@@ -1,8 +1,9 @@
 """Run the example notebooks end to end with reduced sizes (principle 8).
 
-The notebook files are not modified: the sizes are replaced in memory before
-running, in a temporary working directory (``simulator.ipynb`` writes a dataset to
-``data/``; the other notebooks write their figures to ``SYNCCFD_FIG_DIR``).
+All the notebooks generate their dataset with ``presets.from_env()``: the final
+configuration of the dissertation, whose size the ``SYNCCFD_*`` variables reduce here.
+They run in a temporary working directory (``simulator.ipynb`` writes a dataset to
+``data/``) and write their figures to ``SYNCCFD_FIG_DIR``.
 """
 
 from pathlib import Path
@@ -15,39 +16,34 @@ nbclient = pytest.importorskip("nbclient")
 pytestmark = pytest.mark.slow
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
-# Per notebook: sizes in the notebook and their reduced values.
+# Per notebook: customers, terminals and days.
 REDUCED_SIZES = {
-    # The large dataset, and the samples of transactions (of the first 5 days) used
-    # in the plots.
-    "simulator.ipynb": {
-        "n_customers = 10000": "n_customers = 1000",
-        "n_terminals = 20000": "n_terminals = 2000",
-        "nb_days = 180": "nb_days = 20",
-        ".sample(n=10000,": ".sample(n=2000,",
-    },
+    "simulator.ipynb": (1000, 2000, 20),
     # Enough customers to find an example of each drift type.
-    "drift.ipynb": {
-        "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 5000, 10000, 365": (
-            "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 2000, 4000, 365"
-        ),
-    },
+    "drift.ipynb": (2000, 4000, 180),
     # Enough customers for every category; fewer days.
-    "merchants.ipynb": {
-        "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 5000, 10000, 90": (
-            "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 1000, 2000, 30"
-        ),
-    },
+    "merchants.ipynb": (1000, 2000, 30),
     # Enough card-testing campaigns to find one that escalates over several days.
-    "frauds.ipynb": {
-        "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 5000, 10000, 365": (
-            "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 2000, 4000, 365"
-        ),
-    },
+    "frauds.ipynb": (2000, 4000, 180),
 }
 FIGURES = {
+    "simulator.ipynb": {
+        "transactions_table.pdf",
+        "simulator_txs_time_per_type.pdf",
+        "simulator_txs_time_and_amounts.pdf",
+        "simulator_sampled_locations.pdf",
+        "simulator_city_radius.pdf",
+        "populous_cities_distribution.pdf",
+        "fraud_scenarios_count.pdf",
+        "transactions_per_day.pdf",
+        "fraud_scenarios_type_and_amounts.pdf",
+        "fraud_scenarios_bill_shipp_dist2.pdf",
+        "fraud_scenarios_per_category.pdf",
+    },
     "drift.ipynb": {
         "drift_exemplos_clientes.pdf",
         "drift_fracao_regime_b.pdf",
+        "drift_parametros_regime_b.pdf",
         "drift_categorias.pdf",
     },
     "merchants.ipynb": {
@@ -66,24 +62,19 @@ FIGURES = {
 }
 
 
-@pytest.mark.parametrize("name", sorted(REDUCED_SIZES))
-def test_notebook_runs(name, tmp_path, monkeypatch):
-    notebook = nbformat.read(EXAMPLES / name, as_version=4)
-    replaced = set()
-    for cell in notebook.cells:
-        if cell.cell_type != "code":
-            continue
-        for old, new in REDUCED_SIZES[name].items():
-            if old in cell.source:
-                cell.source = cell.source.replace(old, new)
-                replaced.add(old)
-    # If the notebook changes, update REDUCED_SIZES rather than running it full size
-    missing = set(REDUCED_SIZES[name]) - replaced
-    assert not missing, f"not found in {name}: {missing}"
-
+def _run(name, tmp_path, monkeypatch, preset=None):
+    n_customers, n_terminals, nb_days = REDUCED_SIZES[name]
     figures = tmp_path / "figures"
     monkeypatch.setenv("MPLBACKEND", "Agg")
     monkeypatch.setenv("SYNCCFD_FIG_DIR", str(figures))
+    monkeypatch.setenv("SYNCCFD_N_CUSTOMERS", str(n_customers))
+    monkeypatch.setenv("SYNCCFD_N_TERMINALS", str(n_terminals))
+    monkeypatch.setenv("SYNCCFD_NB_DAYS", str(nb_days))
+    if preset is None:
+        monkeypatch.delenv("SYNCCFD_PRESET", raising=False)
+    else:
+        monkeypatch.setenv("SYNCCFD_PRESET", preset)
+    notebook = nbformat.read(EXAMPLES / name, as_version=4)
     client = nbclient.NotebookClient(
         notebook,
         timeout=900,
@@ -91,5 +82,15 @@ def test_notebook_runs(name, tmp_path, monkeypatch):
         resources={"metadata": {"path": str(tmp_path)}},
     )
     client.execute()
-    expected = FIGURES.get(name, set())
-    assert expected <= {p.name for p in figures.glob("*.pdf")}
+    return {p.name for p in figures.glob("*.pdf")}
+
+
+@pytest.mark.parametrize("name", sorted(REDUCED_SIZES))
+def test_notebook_runs(name, tmp_path, monkeypatch):
+    assert FIGURES[name] <= _run(name, tmp_path, monkeypatch)
+
+
+def test_simulator_notebook_with_the_base_ablation_step(tmp_path, monkeypatch):
+    # No merchants: the same ten figures, without the category view
+    figures = _run("simulator.ipynb", tmp_path, monkeypatch, preset="ablation:base")
+    assert FIGURES["simulator.ipynb"] - figures == {"fraud_scenarios_per_category.pdf"}

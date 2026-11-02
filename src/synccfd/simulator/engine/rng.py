@@ -1,6 +1,6 @@
-"""Named, independent random streams for the v2 engine.
+"""Named, independent random streams of the simulator.
 
-All randomness of the v2 engine comes from local ``numpy.random.Generator`` objects
+All randomness of the simulator comes from local ``numpy.random.Generator`` objects
 derived from one ``SeedSequence``; the global ``random``/``numpy.random`` state is
 never used. Each subsystem has its own stream, at a fixed position, so enabling or
 changing one subsystem never changes the draws of another.

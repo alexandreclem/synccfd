@@ -1,6 +1,6 @@
 """Transaction simulation module."""
 
-from .fraud import FraudSimulator
-from .generator import DatasetGenerator
+from . import presets
+from .generator import DatasetGenerator, SimulationResult
 
-__all__ = ["DatasetGenerator", "FraudSimulator"]
+__all__ = ["DatasetGenerator", "SimulationResult", "presets"]
