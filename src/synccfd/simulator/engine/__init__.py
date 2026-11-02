@@ -6,9 +6,11 @@ from typing import Optional
 
 import pandas as pd
 
-from ..config import FraudConfig
+from ..config import DriftConfig, FraudConfig, SeasonalityConfig
 from ..location.features import LocationFeatures
 from .customers import generate_customer_profiles
+from .daily_factors import daily_factors
+from .drift import assign_drift, drift_columns
 from .fraud import apply_frauds
 from .rng import RandomStreams
 from .terminals import generate_terminal_profiles
@@ -34,6 +36,8 @@ def simulate(
     start_date: datetime.datetime,
     random_state: Optional[int],
     fraud: FraudConfig,
+    drift: Optional[DriftConfig] = None,
+    seasonality: Optional[SeasonalityConfig] = None,
 ) -> V2Result:
     """Generate profiles and labelled transactions with the v2 engine."""
     streams = RandomStreams(random_state)
@@ -53,6 +57,16 @@ def simulate(
     loc_features.gen_customer_available_terminals(vectorized=True)
     customers["available_terminals"] = loc_features.customers_available_terminals
 
+    drifts = None
+    if drift is not None:
+        drifts = assign_drift(
+            customers, drift, nb_days, loc_features, streams.generator("drift")
+        )
+    global_drift = drift.global_drift if drift is not None else None
+    factors = None
+    if seasonality is not None or global_drift is not None:
+        factors = daily_factors(nb_days, start_date, seasonality, global_drift)
+
     transactions = generate_transactions(
         customers,
         terminals,
@@ -60,7 +74,12 @@ def simulate(
         nb_days,
         start_date,
         streams.child_generators("transactions", n_customers),
+        drifts=drifts,
+        factors=factors,
+        shock_column=global_drift is not None,
     )
+    if drifts is not None:
+        customers = pd.concat([customers, drift_columns(drifts)], axis=1)
     transactions = apply_frauds(
         transactions, customers, terminals, loc_features, fraud, streams, start_date
     )

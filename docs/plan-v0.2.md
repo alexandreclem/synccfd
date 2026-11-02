@@ -280,13 +280,17 @@ não confundir na avaliação:
   (`A`/`B`, no caso gradual o regime sorteado).
 
 ### 2.5 Critérios de aceite
-- [ ] Golden test passa.
-- [ ] Teste: clientes `none` têm a média móvel de valor estável (sem tendência
+- [x] Golden test passa.
+- [x] Teste: clientes `none` têm a média móvel de valor estável (sem tendência
       significativa); clientes `sudden` mostram mudança de nível em `t0`.
-- [ ] Teste: em `gradual`, a fração de transações com `GT_REGIME == "B"` acompanha `w(t)`.
-- [ ] Teste: `customer_fraction=0` + sazonalidade desligada gera a mesma distribuição da
+      *Critério por tamanho do efeito: variação do valor normalizado ao longo do
+      período menor que 2%; correlação maior que 0,85 entre a mudança de nível
+      observada em `t0` e a configurada (ver "Para o texto", Fase 2).*
+- [x] Teste: em `gradual`, a fração de transações com `GT_REGIME == "B"` acompanha `w(t)`.
+- [x] Teste: `customer_fraction=0` + sazonalidade desligada gera a mesma distribuição da
       Fase 1.
-- [ ] Notebook `examples/drift.ipynb`: um painel por tipo de drift (valor e frequência de
+      *Mais forte que o pedido: gera exatamente os mesmos dados.*
+- [x] Notebook `examples/drift.ipynb`: um painel por tipo de drift (valor e frequência de
       um cliente ao longo do tempo, com `t0` e `L` marcados) e a fração de clientes em B
       ao longo do tempo. **Esses gráficos são a figura central do cap. 4.**
 
@@ -302,13 +306,11 @@ uma versão **sem comerciantes**, implementada aqui, e uma versão **enriquecida
 comerciantes**, ligada automaticamente quando a Fase 4 existir. Como todo componente é
 opcional, isso também permite a ablação (fraudes realistas com e sem comerciantes).
 
-> ⚠️ **Validar com o orientador antes de implementar:** a mudança de adulteração para
-> injeção (3.1, abaixo). Ela muda a semântica dos cenários em relação ao artigo.
-
 ### 3.1 Mudança de mecanismo (só no motor v2): injeção em vez de adulteração
 Na v0.1, os cenários 3 e 4 **alteram** transações legítimas do cliente (mudam
-local, tipo e multiplicam o valor por 5). No v2, o fraudador **gera transações novas**,
-que se somam às do cliente:
+local, tipo e multiplicam o valor por 5), e o cenário 1 **rotula** como fraude as
+transações legítimas acima de R$ 220. No v2, em todos os cenários, o fraudador **gera
+transações novas**, que se somam às do cliente:
 - o histórico legítimo do cliente continua íntegro, como acontece na realidade;
 - valor, horário e comerciante da fraude vêm do comportamento do fraudador, não do cliente;
 - `FraudConfig(engine="v2")` liga esse mecanismo; `engine="legacy"` mantém a adulteração.
@@ -317,7 +319,7 @@ que se somam às do cliente:
 
 | # | cenário | comportamento do fraudador (sem comerciantes) | enriquecimento com comerciantes (Fase 4) |
 |---|---|---|---|
-| 1 | valor anômalo | transação acima do quantil `q` (padrão 0,995) da distribuição **global** de valores. Substitui o limiar fixo de R$ 220, que não se ajusta a outras configurações | quantil **por categoria** (viagem e eletrônicos legitimamente caros não viram fraude) |
+| 1 | valor anômalo | **injetado**, como os demais: o fraudador faz uma compra **nova** com valor muito acima do histórico do próprio cliente, isto é, acima de um quantil alto (`q`) do valor das compras recentes dele, multiplicado por um fator configurável. Transações legítimas **nunca** são rotuladas como fraude. Substitui o limiar fixo de R$ 220, que rotulava o *drift* legítimo como fraude (ver "Para o texto", Fase 2); o legacy mantém o limiar fixo | a compra fraudulenta cai em categorias de valor alto (eletrônicos, viagem); o quantil continua sendo o do histórico do cliente |
 | 2 | terminal comprometido (*skimming*) | um terminal é comprometido por `D` dias; as transações CP ali viram fraude, e o cartão de cada vítima entra numa fila de "cartões vazados" que alimenta o cenário 3 dias depois (encadeamento realista) | compromete o **comerciante** inteiro (todos os seus terminais), com seleção ponderada pelo risco da categoria (posto e restaurante mais altos) |
 | 3 | número do cartão roubado (CNP) | por `D` dias, o fraudador faz compras **novas** só em CNP, com entrega no local do fraudador, horário com viés noturno, rajadas de 2 a 5 compras em poucas horas e valores acima do padrão do cliente | compras concentradas em categorias revendáveis ou digitais (eletrônicos, marketplace, serviços digitais, viagem), com valores acima da mediana da categoria |
 | 4 | cartão físico roubado (CP) | começa num instante `τ` e faz compras **novas** em sequência rápida (minutos), em terminais perto da cidade da vítima, até atingir um limite de gasto ou ser bloqueado (`s4_max_txs`, `s4_block_prob_per_tx`). Pode haver tentativas CNP | compras em categorias revendáveis (eletrônicos, posto, farmácia, supermercado) |
@@ -345,6 +347,10 @@ que se somam às do cliente:
 - [ ] Golden test passa.
 - [ ] Teste: no v2, o número de transações legítimas de cada cliente não muda quando a
       fraude é ligada (injeção, não adulteração).
+- [ ] Teste: no v2, nenhuma transação legítima é rotulada como fraude pelo cenário 1, e
+      cada fraude do cenário 1 tem valor acima de fator × quantil `q` das compras recentes
+      do cliente. Com *drift* ligado, a fração do cenário 1 vinda do regime B fica próxima
+      da fração de transações do regime B (documentar os dois valores).
 - [ ] Teste: cenário 5 só tem valores ≤ R$ 5 e `TX_TYPE == "CNP"`; quando escala, o
       `GT_CAMPAIGN_ID` é compartilhado com o cenário 3 seguinte.
 - [ ] Teste: as transações do cenário 4 acontecem em até 24 h a partir de `τ` e somam até o
@@ -422,8 +428,8 @@ cenários de fraude com comerciantes (Fase 3).
 
 ### 4.3 Critérios de aceite
 - [ ] Golden test passa.
-- [ ] Teste: com comerciantes ligados, o cenário 1 usa o quantil por categoria, e o cenário 3
-      concentra compras nas categorias configuradas.
+- [ ] Teste: com comerciantes ligados, as fraudes do cenário 1 caem nas categorias de valor
+      alto, e o cenário 3 concentra compras nas categorias configuradas.
 - [ ] Teste: com *drift* e comerciantes ligados, clientes do regime B têm preferência por
       categoria diferente da do regime A.
 - [ ] Notebooks das Fases 2 e 3 atualizados para mostrar também a visão por categoria.
@@ -492,9 +498,9 @@ cenários de fraude com comerciantes (Fase 3).
 | tema | decisão |
 |---|---|
 | reproduzir o artigo | não é possível com a v0.1 (a ordem dos sorteios mudou na reescrita). A linha de base da dissertação será refeita sobre o SynCCFD |
-| fraude por injeção | muda a semântica dos cenários 3 e 4 no v2. Justificativa na dissertação: o histórico legítimo do cliente é preservado, o que é mais realista e evita contaminar os atributos de agregação. **Validar com o orientador antes da Fase 3** |
+| fraude por injeção | muda a semântica dos cenários 1, 3 e 4 no v2. Justificativa na dissertação: o histórico legítimo do cliente é preservado, o que é mais realista e evita contaminar os atributos de agregação |
 | ordem das fases | *drift* → fraudes → comerciantes. As fases anteriores funcionam sem os comerciantes, o que mantém cada componente opcional e permite a ablação |
-| limiar fixo do cenário 1 | substituído por quantil por categoria no v2 |
+| limiar fixo do cenário 1 | no v2, substituído por fraude injetada: compra acima de fator × quantil alto das compras recentes do próprio cliente; transações legítimas nunca viram fraude. O legacy mantém o limiar fixo. Motivo: com o limiar fixo, 86% do cenário 1 vinha de clientes no regime B (Fase 2) |
 | taxa de fraude e escala | `rate_mode="proportional"` é o padrão nos presets novos |
 | drift × sazonalidade | separados: sazonalidade é estacionária e não deve ser contada como drift |
 
@@ -812,9 +818,7 @@ como já previsto na Fase 5.
 
 ## Fase 1 — Motor v2
 
-**Status:** implementada e aprovada em 2026-11-02, na branch
-`feat/v0.2-phase1-engine` · PR *(número e commit de merge registrados no início da
-Fase 2)*
+**Status:** concluída em 2026-11-02 · integrada ao master pelo PR #2 (`d4bc73c`)
 
 ### O que foi implementado
 
@@ -1011,7 +1015,195 @@ nos atributos.
   recente.
 
 ## Fase 2 — Customers com *concept drift*
-*(a preencher)*
+
+**Status:** implementada em 2026-11-02, na branch `feat/v0.2-phase2-drift`, aguardando
+revisão · PR *(a abrir)*
+
+### O que foi implementado
+
+O motor v2 passou a simular *concept drift* de clientes, seguindo a taxonomia de Gama et
+al. (2014). Cada cliente tem um regime A, o seu perfil original. Uma fração configurável
+dos clientes (30% por padrão, em número exato) ganha também um regime B, sorteado a
+partir de A:
+- o valor médio é multiplicado por um fator log-normal;
+- a frequência média também;
+- a probabilidade de CNP é deslocada na escala logit;
+- com probabilidade de 5%, o cliente muda de cidade, o que troca o endereço de
+  cobrança e os terminais ao alcance.
+
+O tipo de *drift* de cada cliente define o peso do regime B ao longo do tempo, $w(t)$:
+súbito (degrau em $t_0$), gradual e incremental (rampa linear em $[t_0, t_0 + L]$) e
+recorrente (episódios de $D$ dias a cada $P$ dias, a partir de $t_0$). Gradual e
+incremental usam o mesmo $w(t)$, mas se aplicam de formas diferentes, como na
+literatura. No gradual, há mistura de dois conceitos: cada transação vem do regime B
+com probabilidade $w(t)$. No incremental, um único conceito se desloca: os parâmetros
+são interpolados, $\theta(t) = (1 - w)\,\theta_A + w\,\theta_B$. O peso é avaliado no meio
+de cada dia e vale para todas as transações daquele dia.
+
+Separados do *drift* do cliente, foram implementados dois componentes que valem para
+toda a população. O primeiro é o *drift* global (`GlobalDrift`): uma tendência de valor,
+como a inflação, e choques em datas determinadas, como uma *Black Friday*. O segundo é
+a sazonalidade (`SeasonalityConfig`), com fatores de frequência por dia da semana, nos
+dias de pagamento (5, 20 e último dia útil) e em dezembro, mês em que também há um
+fator de valor. A sazonalidade se repete a cada semana, mês ou ano, portanto é
+estacionária e não é *drift*. Por isso fica num componente próprio e não aparece nas
+colunas de regime, para não ser confundida com *drift* na avaliação.
+
+Toda a informação sobre o *drift* fica em colunas de gabarito (`GT_*`), que nunca devem
+ser usadas como atributos. Nos perfis de clientes, elas registram o tipo de *drift*, os
+parâmetros de tempo e os parâmetros do regime B. Nas transações, registram o peso
+$w(t)$ do dia e o regime de origem da transação (para o incremental, que não tem regime
+de origem, `B` a partir de $w \geq 0{,}5$).
+
+Os sorteios do *drift* vêm do fluxo aleatório `drift`, separado dos demais. Os clientes
+sem *drift* seguem exatamente a mesma sequência de sorteios do motor da Fase 1. Com
+isso, ligar o *drift* não altera as transações desses clientes, e
+`customer_fraction=0` sem sazonalidade reproduz exatamente os dados da Fase 1. Essa
+propriedade permite comparar, nos experimentos, conjuntos com e sem *drift* que diferem
+apenas nos clientes com *drift*.
+
+### Decisões e justificativas
+| decisão | alternativa considerada | por que esta |
+|---|---|---|
+| número exato de clientes com *drift*, $\mathrm{round}(f \cdot N)$ | sortear cada cliente com probabilidade $f$ | a fração com *drift* fica exatamente a configurada, o que facilita comparar experimentos |
+| $w(t)$ avaliado no meio de cada dia e aplicado a todas as transações do dia | avaliar $w$ no instante exato de cada transação | a frequência é diária (Poisson por dia), e as transições duram de 7 a 30 dias, de modo que a resolução diária basta; assim os horários continuam sendo sorteados depois do resto, na mesma ordem da Fase 1 |
+| frequência no gradual: taxa diária $(1 - w)\,\lambda_A + w\,\lambda_B$, e cada transação vem de B com probabilidade $w$ | sobrepor dois processos de Poisson, um com taxa $(1 - w)\,\lambda_A$ e outro com taxa $w\,\lambda_B$ | a fração de transações de B fica igual a $w(t)$, como pede o plano; na sobreposição, ela seria $w\,\lambda_B / [(1 - w)\,\lambda_A + w\,\lambda_B]$ |
+| `GT_REGIME` do incremental é `B` a partir de $w \geq 0{,}5$; a mudança de cidade também acontece em $w = 0{,}5$ | não rotular o incremental | o incremental não tem regime de origem por transação; o rótulo por limiar permite separar as transações em antes e depois, e `GT_REGIME_WEIGHT` guarda o valor contínuo |
+| desvio-padrão do valor no regime B igual a metade da média, como na v0.1 | sortear um fator próprio para o desvio | mantém a relação da v0.1 e evita mais um parâmetro |
+| clientes sem *drift* seguem o mesmo caminho de sorteios da Fase 1 | gerar todos os clientes pelo caminho com *drift* | garante dados idênticos com *drift* desligado (ablação com os mesmos números aleatórios) |
+| sazonalidade e *drift* global multiplicam a taxa diária e o valor de todos os clientes; só os choques ganham uma coluna de gabarito (`GT_SHOCK`) | colunas de gabarito para cada fator | os fatores são funções determinísticas da data e da configuração; os choques são eventos que a avaliação pode querer isolar |
+| figuras do notebook geradas sem fraude | gerar com a fraude padrão | com a fraude ligada, o cenário 1 (limiar fixo de R$ 220) marca como fraude muitas compras de clientes cujo regime B gasta mais, e elas somem das transações legítimas (ver "Números") |
+
+### Parâmetros finais (padrões)
+| parâmetro | valor padrão | significado |
+|---|---|---|
+| `customer_fraction` | 0,3 | fração de clientes com *drift* |
+| `type_weights` | súbito 0,3; gradual 0,3; incremental 0,2; recorrente 0,2 | probabilidade de cada tipo entre os clientes com *drift* |
+| `start_day_range` | (0,2; 0,8) | $t_0$ como fração do número de dias |
+| `transition_days_range` | (7, 30) | $L$, em dias (gradual e incremental) |
+| `recurrent_period_days_range` | (30, 90) | $P$, em dias (recorrente) |
+| `recurrent_active_days_range` | (5, 15) | $D$, em dias (recorrente) |
+| `amount_log_mu`, `amount_log_sigma` | 0; 0,5 | fator do valor médio em B ~ LogNormal($\mu$, $\sigma$) |
+| `frequency_log_sigma` | 0,4 | fator da frequência em B ~ LogNormal(0, $\sigma$) |
+| `cnp_logit_sigma` | 1,0 | deslocamento do logit da probabilidade de CNP em B ~ $\mathcal{N}(0, \sigma)$ |
+| `relocation_prob` | 0,05 | probabilidade de o regime B morar em outra cidade |
+| `category_shift_range` | (0,3; 0,8) | mudança de preferência por categoria (usada só com comerciantes, Fase 4) |
+| `global_drift` | `None` | *drift* global: `amount_trend_per_year` (padrão 0) e choques (`Shock`) |
+| `weekday_frequency` | (0,95; 0,95; 1,0; 1,0; 1,1; 1,15; 0,85) | fator de frequência de segunda a domingo (média 1) |
+| `payday_days`, `payday_last_business_day` | (5, 20); sim | dias de pagamento |
+| `payday_frequency_multiplier` | 1,3 | fator de frequência nos dias de pagamento |
+| `december_frequency_multiplier`, `december_amount_multiplier` | 1,2; 1,15 | fatores de frequência e de valor em dezembro |
+
+### Equações / regras
+Peso do regime B no dia $d$, avaliado em $t = d + 0{,}5$:
+$$
+w(t) = \begin{cases}
+0 & \text{sem drift} \\
+\mathbb{1}[t \geq t_0] & \text{súbito} \\
+\min\!\left(1, \max\!\left(0, \frac{t - t_0}{L}\right)\right) & \text{gradual e incremental} \\
+\mathbb{1}[t \geq t_0] \cdot \mathbb{1}[(t - t_0) \bmod P < D] & \text{recorrente}
+\end{cases}
+$$
+
+Regime B, a partir do regime A de cada cliente:
+$\mu_B = \mu_A \cdot e^{Z_1}$, com $Z_1 \sim \mathcal{N}(\mu_{\text{amount}}, \sigma_{\text{amount}})$;
+$\sigma_B = \mu_B / 2$;
+$\lambda_B = \lambda_A \cdot e^{Z_2}$, com $Z_2 \sim \mathcal{N}(0, \sigma_{\text{freq}})$;
+$p_B = \operatorname{sigmoid}(\operatorname{logit}(p_A) + Z_3)$, com $Z_3 \sim \mathcal{N}(0, \sigma_{\text{cnp}})$.
+
+Geração, para o dia $d$ com peso $w = w(d + 0{,}5)$ e fatores de calendário $s_f(d)$
+(frequência) e $s_v(d)$ (valor):
+- número de transações: $N_d \sim \mathrm{Poisson}\big(s_f(d)\,[(1 - w)\,\lambda_A + w\,\lambda_B]\big)$;
+- gradual: cada transação vem de B com probabilidade $w$ e usa os parâmetros do seu
+  regime; súbito e recorrente: os parâmetros do regime ativo; incremental:
+  $\theta = (1 - w)\,\theta_A + w\,\theta_B$ para $\theta \in \{\mu, \sigma, p\}$;
+- valor: sorteado como na Fase 1 com os parâmetros acima e multiplicado por $s_v(d)$.
+
+Fatores de calendário: $s_f(d) = f_{\text{semana}}(d) \cdot f_{\text{pagamento}}(d) \cdot f_{\text{dezembro}}(d) \cdot f_{\text{choque}}(d)$
+e $s_v(d) = v_{\text{dezembro}}(d) \cdot (1 + r)^{d / 365{,}25} \cdot v_{\text{choque}}(d)$,
+em que $r$ é a tendência anual de valor do *drift* global.
+
+### Figuras geradas
+| arquivo | legenda proposta | seção da dissertação |
+|---|---|---|
+| `docs/figures/fase2/drift_exemplos_clientes.pdf` | Um cliente de cada tipo de *drift*. À esquerda, o valor de cada transação, colorido pelo regime de origem, e os valores médios dos regimes A e B; à direita, as transações por dia, a média móvel de 14 dias e a taxa esperada $\lambda(t)$. A linha vertical marca $t_0$; a faixa cinza, a transição $[t_0, t_0 + L]$; as faixas laranja, os episódios do regime B (recorrente). Clientes escolhidos entre os frequentes ($\geq 2{,}5$ transações por dia no regime A) com a maior mudança de valor; no gradual e no incremental, só entre os de transição longa ($L \geq 25$ dias). | 4.4 Componentes novos — *concept drift* (figura central) |
+| `docs/figures/fase2/drift_fracao_regime_b.pdf` | Peso médio do regime B, $\bar w(t)$, entre os clientes de cada tipo de *drift* e entre todos os clientes. Para os tipos súbito e recorrente, é a fração de clientes no regime B. | 4.4 Componentes novos — *concept drift* |
+| `docs/figures/fase2/drift_parametros_regime_b.pdf` | Distribuição das mudanças sorteadas para os clientes com *drift*: razão dos valores médios e das frequências (escala log) e diferença na probabilidade de CNP. | 4.4 ou 4.6 Saídas e gabarito |
+
+Configuração das figuras: 5 000 clientes, 10 000 terminais, 365 dias a partir de
+2023-01-01, `random_state=42`, `DriftConfig()` padrão, fraude desligada.
+
+### Números
+| medida | valor | configuração |
+|---|---|---|
+| clientes por tipo de *drift* | sem *drift*: 3 500; gradual: 457; súbito: 425; incremental: 312; recorrente: 306; mudaram de cidade: 73 | 5 000 clientes, 365 dias, `random_state=42`, `DriftConfig()` |
+| média de $\lvert \ln(\mu_B / \mu_A) \rvert$ | entre 0,39 (recorrente) e 0,43 (súbito) | idem |
+| `customer_fraction=0` × motor da Fase 1 | dados idênticos (perfis e transações, fora as colunas `GT_*`) | 1 000 clientes, 120 dias, `random_state=42`, sem fraude |
+| clientes sem *drift*: variação do valor normalizado ($v / \mu_A$) ao longo do período | −0,16% (critério: menor que 2%) | 1 000 clientes, 2 000 terminais, 120 dias, `random_state=42`, `customer_fraction=0,5`, sem fraude |
+| súbito: correlação entre $\ln$(valor médio depois/antes de $t_0$) e $\ln(\mu_B / \mu_A)$ | 0,991 (127 clientes com pelo menos 10 transações antes e depois); erro absoluto médio 0,05 | idem |
+| gradual: fração de transações de B × $w$ médio, em 5 faixas de $w$ | diferença máxima de 0,011 (por exemplo, $w = 0{,}502$ e fração 0,508) | idem |
+| incremental: valor médio observado ÷ média interpolada | 1,029 (o excesso vem da troca de sorteios negativos, como no regime A da Fase 1) | idem |
+| tempo de geração no v2 | sem *drift*: 14,5 s; com *drift*: 16,1 s; com *drift* e sazonalidade: 24,2 s | 10 000 clientes, 20 000 terminais, 180 dias, `random_state=42` |
+| cenário 1 (limiar fixo de R$ 220) nas transações de cada regime | regime A: 0,06%; regime B: 2,30%; 11 360 das 13 229 transações do cenário 1 (86%) vêm do regime B, que tem 13,5% das transações | 5 000 clientes, 365 dias, `random_state=42`, `DriftConfig()`, `FraudConfig()` |
+
+### Testes que comprovam o comportamento
+- `tests/golden/test_legacy_reproducibility.py`: o legacy continua reproduzindo a v0.1.0.
+- `tests/engine/test_drift.py`:
+  - validação de `DriftConfig`, `SeasonalityConfig` e `Shock`; `type_weights` somente
+    para leitura; escolha do motor (`auto` vira `v2` com *drift* ou sazonalidade; o
+    legacy recusa esses componentes);
+  - forma de $w(t)$ para cada tipo;
+  - `test_no_drift_customers_are_unchanged`: `customer_fraction=0` reproduz exatamente
+    a Fase 1; com *drift* ligado, os clientes sem *drift* têm exatamente as mesmas
+    transações;
+  - `test_no_drift_customers_have_no_trend`: variação do valor normalizado ao longo do
+    período menor que 2%;
+  - `test_sudden_drift_changes_level_at_t0`: correlação maior que 0,85 entre a mudança
+    observada e a configurada, e `GT_REGIME` igual a `A` antes e `B` depois de $t_0$;
+  - `test_gradual_regime_share_follows_weight`: fração de B igual a $w$ em 5 faixas, com
+    tolerância de 0,05;
+  - `test_incremental_parameters_are_interpolated`: valor médio igual à média
+    interpolada, com tolerância de 5%;
+  - `test_recurrent_episodes`: `GT_REGIME` igual a `B` exatamente nos episódios;
+  - `test_relocated_customers_buy_near_their_new_address`: no regime B, o endereço de
+    cobrança é o novo e as compras CP ficam a até 10 km dele;
+  - gabarito (`GT_*`), ausência de rótulos de fraude criados pelo *drift*,
+    reprodutibilidade;
+  - fatores diários (dia da semana, último dia útil, dias 5 e 20, dezembro, choque,
+    tendência), efeito da sazonalidade no volume diário e rótulo `GT_SHOCK`.
+- `tests/examples/test_notebooks.py` (`slow`): executa `examples/simulator.ipynb` e
+  `examples/drift.ipynb` de ponta a ponta.
+
+### Desvios do plano
+- Os critérios "média móvel estável" e "mudança de nível em $t_0$" foram verificados
+  por tamanho do efeito (variação menor que 2%; correlação maior que 0,85), e não por um
+  teste de significância, pelo mesmo motivo do KS da Fase 1: com muitas transações, um
+  p-valor acusa diferenças pequenas demais para importar.
+- O teste de `customer_fraction=0` exige dados idênticos, e não só a mesma distribuição.
+- O gabarito ganhou `GT_DRIFT_ACTIVE_DAYS` (duração dos episódios do recorrente),
+  `GT_RELOCATED`, `GT_B_billing_lat` e `GT_B_billing_long`, além das colunas previstas, e
+  `GT_SHOCK` nas transações quando há *drift* global.
+- A frequência no gradual usa a taxa diária interpolada, e não a sobreposição de dois
+  processos (ver "Decisões").
+- `category_pref` (mudança de preferência por categoria) fica para a Fase 4, como
+  previsto; `category_shift_range` já existe no `DriftConfig`, mas ainda não tem efeito.
+- O teste do notebook passou a executar também `examples/drift.ipynb`; o arquivo de
+  teste foi renomeado para `tests/examples/test_notebooks.py`.
+
+### Pendências / ideias
+- **Interação com o cenário 1 (resolvida na Fase 3):** com o limiar fixo de R$ 220,
+  86% das transações do cenário 1 (11 360 de 13 229) vêm de clientes no regime B, que
+  responde por só 13,5% das transações; no regime B, 2,30% das transações viram cenário
+  1, contra 0,06% no regime A (ver "Números"). Ou seja, o cenário 1 rotula como fraude
+  mudanças legítimas de comportamento, e um detector treinado nesses dados aprenderia a
+  tratar *drift* como fraude. **Decisão (2026-11-02):** no motor v2, o cenário 1 passa a
+  ser injetado, como os demais: o fraudador faz uma compra nova com valor acima de um
+  quantil alto das compras recentes do próprio cliente, multiplicado por um fator
+  configurável, e transações legítimas nunca são rotuladas como fraude. O legacy mantém o
+  limiar fixo (golden test). Ver a tabela de cenários da Fase 3.
+- Os fatores de sazonalidade são aplicados igualmente a todos os clientes; com
+  comerciantes (Fase 4), o fim de semana passa a variar por categoria.
+- O *drift* global ainda não tem figura própria no notebook.
 
 ## Fase 3 — Fraudadores realistas
 *(a preencher)*
