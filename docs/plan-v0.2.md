@@ -553,7 +553,9 @@ cenários de fraude com comerciantes (Fase 3).
       motores.
 - [x] `scripts/make_figures.py` regenera todas as figuras e `dataset_stats.json` com a
       mesma configuração; o "Fechamento do [SIM]" está preenchido com esses números.
-- [ ] Lançamento da 0.2.0 (tag, *release* no GitHub e PyPI): só depois da revisão.
+- [x] Lançamento da 0.2.0 (tag, *release* no GitHub e PyPI). *Tag `v0.2.0` em
+      2026-11-02, sobre a integração do PR #6 (`891fd5c`); publicada no PyPI pelo
+      workflow `publish.yml` (*trusted publishing*).*
 
 ### 5.2 Remoção do motor legacy (decidida na revisão da Fase 5)
 Registrada antes como passo para o fim do mestrado, a remoção foi antecipada para a
@@ -1877,8 +1879,9 @@ notebooks (5 000 clientes, 365 dias, `DriftConfig()`; na Fase 3,
 
 ## Fase 5 — Presets, documentação e release 0.2.0
 
-**Status:** implementada em 2026-11-02, na branch `feat/v0.2-phase5-release`,
-aguardando revisão · PR *(a abrir)* · lançamento da 0.2.0 *(depois da revisão)*
+**Status:** concluída em 2026-11-02 · integrada ao master pelo PR #6 (`891fd5c`) ·
+0.2.0 lançada em 2026-11-02 (tag `v0.2.0`, *release* no GitHub e PyPI:
+`pip install synccfd==0.2.0`)
 
 ### O que foi implementado
 
@@ -2109,11 +2112,13 @@ completa, na ordem do cap. 4, está no "Fechamento do [SIM]".
   (`fraud_scenarios_per_category`), só com comerciantes.
 - As figuras do simulador ficam em `docs/figures/exploratoria/`, como no plano, e os
   diagramas em `docs/figures/arquitetura/`.
-- O lançamento (tag, *release*, PyPI) não foi feito: fica para depois da revisão.
+- O lançamento foi feito depois da revisão. A primeira execução do workflow de
+  publicação falhou (`invalid-publisher`: não havia *trusted publisher* cadastrado no
+  PyPI, porque a 0.1.0 foi enviada por outro caminho); depois do cadastro no PyPI, o
+  job foi executado de novo, sem nova tag, e publicou o sdist e o wheel, com
+  atestações de procedência. A 0.2.0 instalada do PyPI num ambiente limpo gerou dados.
 
 ### Pendências / ideias
-- Lançar a 0.2.0: tag `v0.2.0` e *release* no GitHub (que publica no PyPI), com a data
-  no CHANGELOG e o `date-released` no `CITATION.cff`.
 - A mistura de cenários ainda muda entre as etapas da ablação (o cenário 5 só existe
   a partir de `frauds`, e o 2 cai pela metade em 60% do período); vale reportar as
   métricas também por cenário.
