@@ -3,11 +3,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 from geopy import Point as GeopyPoint
 from geopy.distance import distance as GeopyDistance
 from haversine import haversine_vector
 from shapely.geometry import Point as ShapelyPoint
+
+from . import sampling
 
 
 def random_point_around_a_center(
@@ -144,16 +147,39 @@ class LocationFeatures:
             "brazil_cities": brazil_cities,
         }
 
-    def gen_billing_locations(
-        self, n_customers: int, random_state: Optional[int] = None
-    ) -> None:
-        """Generate billing locations for customers."""
-        random_locs = gen_random_points(
-            n_customers,
+    def _random_points(
+        self,
+        num_points: int,
+        cities: pd.DataFrame,
+        random_state: Optional[int],
+        rng: Optional[np.random.Generator],
+    ) -> dict[str, pd.DataFrame]:
+        # With ``rng`` (v2 engine): vectorised and local; otherwise the legacy path.
+        if rng is not None:
+            return sampling.random_points_around_cities(
+                num_points, self.city_radius, self.data["brazil_polygon"], cities, rng
+            )
+        return gen_random_points(
+            num_points,
             self.city_radius,
             self.data["brazil_polygon"],
-            self.data["brazil_cities"],
+            cities,
             random_state=random_state,
+        )
+
+    def gen_billing_locations(
+        self,
+        n_customers: int,
+        random_state: Optional[int] = None,
+        rng: Optional[np.random.Generator] = None,
+    ) -> None:
+        """Generate billing locations for customers.
+
+        ``rng`` selects the vectorised sampler (v2 engine); without it the legacy
+        behaviour is kept.
+        """
+        random_locs = self._random_points(
+            n_customers, self.data["brazil_cities"], random_state, rng
         )
 
         self.billing_locations = random_locs["random_points"]
@@ -167,24 +193,22 @@ class LocationFeatures:
             "long": self.billing_locations.at[customer_id, "long"],
         }
 
-    def gen_terminal_locations(self, n_terminals: int, random_state: int = 1) -> None:
-        """Generate terminal locations."""
+    def gen_terminal_locations(
+        self,
+        n_terminals: int,
+        random_state: int = 1,
+        rng: Optional[np.random.Generator] = None,
+    ) -> None:
+        """Generate terminal locations (in the customers' cities, if any).
+
+        ``rng`` selects the vectorised sampler (v2 engine); without it the legacy
+        behaviour is kept.
+        """
         if len(self.billing_cities_locations):
-            random_locs = gen_random_points(
-                n_terminals,
-                self.city_radius,
-                self.data["brazil_polygon"],
-                self.billing_cities_locations.drop_duplicates(),
-                random_state=random_state,
-            )
+            cities = self.billing_cities_locations.drop_duplicates()
         else:
-            random_locs = gen_random_points(
-                n_terminals,
-                self.city_radius,
-                self.data["brazil_polygon"],
-                self.data["brazil_cities"],
-                random_state=random_state,
-            )
+            cities = self.data["brazil_cities"]
+        random_locs = self._random_points(n_terminals, cities, random_state, rng)
 
         self.terminal_locations = random_locs["random_points"]
         self.terminal_cities_locations = random_locs["cities"]
@@ -197,8 +221,22 @@ class LocationFeatures:
             "long": self.terminal_locations.at[terminal_id, "long"],
         }
 
-    def gen_customer_available_terminals(self) -> None:
-        """Generate list of available terminals for each customer."""
+    def gen_customer_available_terminals(self, vectorized: bool = False) -> None:
+        """Generate list of available terminals for each customer.
+
+        ``vectorized=True`` (v2 engine) computes the same lists with chunked numpy
+        distances instead of one ``haversine_vector`` call per customer.
+        """
+        if vectorized:
+            self.customers_available_terminals = sampling.points_within_radius(
+                self.billing_locations["lat"].to_numpy(),
+                self.billing_locations["long"].to_numpy(),
+                self.terminal_locations["lat"].to_numpy(),
+                self.terminal_locations["long"].to_numpy(),
+                self.available_terminals_radius,
+            )
+            return
+
         # One list of terminal ids per customer.
         self.customers_available_terminals = []
 
