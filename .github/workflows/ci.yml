@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # ubuntu-latest (26.04) no longer ships Python 3.9
     strategy:
       fail-fast: false
       matrix:
@@ -46,7 +46,7 @@ jobs:
         fail_ci_if_error: false
 
   slow-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # ubuntu-latest (26.04) no longer ships Python 3.9
 
     steps:
     - uses: actions/checkout@v4

@@ -129,8 +129,8 @@ generator = DatasetGenerator(
     n_terminals=2000,
     nb_days=30,
     fraud=FraudConfig(
-        scenarios=(1, 3, 4),          # disable scenario 2
-        rate_mode="proportional",     # scale compromises with the population
+        scenarios=(1, 3, 4),  # disable scenario 2
+        rate_mode="proportional",  # scale compromises with the population
         s3_customer_fraction_per_day=3e-3,
         s4_customer_fraction_per_day=3e-3,
     ),
