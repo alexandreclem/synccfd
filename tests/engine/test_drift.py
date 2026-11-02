@@ -24,6 +24,11 @@ PARAMS = {
     "nb_days": 120,
     "start_date": "2023-01-01",
     "random_state": 42,
+    # Components off unless a test switches them on
+    "fraud": None,
+    "drift": None,
+    "seasonality": None,
+    "merchants": None,
 }
 NO_FRAUD = FraudConfig(scenarios=())
 
@@ -79,13 +84,6 @@ def test_invalid_seasonality_and_shock_raise():
         Shock("2023-11-24", duration_days=0)
 
 
-def test_engine_selection():
-    assert DatasetGenerator(**PARAMS, drift=DriftConfig()).engine == "v2"
-    assert DatasetGenerator(**PARAMS, seasonality=SeasonalityConfig()).engine == "v2"
-    with pytest.raises(ValueError):
-        DatasetGenerator(**PARAMS, drift=DriftConfig(), engine="legacy")
-
-
 # --- w(t) -------------------------------------------------------------------------
 
 
@@ -112,13 +110,15 @@ def test_regime_weight_shapes():
 
 
 def test_no_drift_customers_are_unchanged(drifted):
-    """customer_fraction=0 + no seasonality gives exactly the Phase 1 data; with
+    """customer_fraction=0 + no seasonality gives exactly the data without drift; with
     drift on, customers without drift keep exactly their transactions."""
-    base = _generate(engine="v2", fraud=NO_FRAUD)
+    base = _generate(fraud=NO_FRAUD)
     zero = _generate(drift=DriftConfig(customer_fraction=0.0), fraud=NO_FRAUD)
     for base_frame, zero_frame in zip(base, zero):
+        # Same data; the drift adds only ground-truth columns
         pd.testing.assert_frame_equal(
-            base_frame, zero_frame.drop(columns=_gt_columns(zero_frame))
+            base_frame.drop(columns=_gt_columns(base_frame)),
+            zero_frame.drop(columns=_gt_columns(zero_frame)),
         )
 
     customers, _, transactions = drifted
@@ -238,8 +238,11 @@ def test_ground_truth_columns(drifted):
     assert customers[customers.GT_DRIFT_TYPE == "none"].GT_DRIFT_T0.isna().all()
     assert transactions.GT_REGIME_WEIGHT.between(0, 1).all()
     assert set(transactions.GT_REGIME) <= {"A", "B"}
-    # transactions columns: v0.1 schema first, then the ground truth
-    assert transactions.columns[-2:].tolist() == ["GT_REGIME_WEIGHT", "GT_REGIME"]
+    # transactions columns: the attributes first, then the ground truth
+    columns = transactions.columns.tolist()
+    first_gt = min(columns.index(c) for c in _gt_columns(transactions))
+    assert all(c.startswith("GT_") for c in columns[first_gt:])
+    assert columns.index("GT_REGIME") == columns.index("GT_REGIME_WEIGHT") + 1
 
 
 def test_drift_does_not_create_fraud_labels():
@@ -250,7 +253,7 @@ def test_drift_does_not_create_fraud_labels():
 
 
 def test_drift_with_fraud_keeps_ground_truth():
-    customers, _, transactions = _generate(drift=DriftConfig())
+    customers, _, transactions = _generate(drift=DriftConfig(), fraud=FraudConfig())
     assert transactions.TX_FRAUD.sum() > 0
     assert {"GT_REGIME", "GT_REGIME_WEIGHT"} <= set(transactions.columns)
 

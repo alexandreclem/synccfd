@@ -22,11 +22,6 @@ Simulator
 .. automodule:: synccfd.simulator.ground_truth
    :members:
 
-.. automodule:: synccfd.simulator.fraud
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 .. automodule:: synccfd.simulator.location.features
    :members:
    :undoc-members:

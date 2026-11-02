@@ -1,7 +1,7 @@
 Merchants and categories
 ========================
 
-``MerchantConfig`` (v2 engine): the amount and the time of a purchase depend on the
+``MerchantConfig``: the amount and the time of a purchase depend on the
 merchant's category, not only on the customer. See ``examples/merchants.ipynb``.
 
 Merchants

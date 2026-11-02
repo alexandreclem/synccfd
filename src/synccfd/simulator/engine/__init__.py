@@ -1,4 +1,4 @@
-"""v2 simulation engine: vectorised, with local random streams only."""
+"""Simulation engine: vectorised, with local random streams only."""
 
 import datetime
 from dataclasses import dataclass
@@ -18,11 +18,11 @@ from .rng import RandomStreams
 from .terminals import generate_terminal_profiles
 from .transactions import generate_transactions
 
-__all__ = ["RandomStreams", "V2Result", "simulate"]
+__all__ = ["RandomStreams", "EngineResult", "simulate"]
 
 
 @dataclass
-class V2Result:
+class EngineResult:
     customer_profiles: pd.DataFrame
     terminal_profiles: pd.DataFrame
     transactions: pd.DataFrame
@@ -42,21 +42,19 @@ def simulate(
     drift: Optional[DriftConfig] = None,
     seasonality: Optional[SeasonalityConfig] = None,
     merchants: Optional[MerchantConfig] = None,
-) -> V2Result:
-    """Generate profiles and labelled transactions with the v2 engine."""
+) -> EngineResult:
+    """Generate profiles and labelled transactions."""
     if merchants is not None:
         unknown = fraud.fraud_categories() - set(merchants.names)
-        if fraud.mechanism == "inject" and unknown:
+        if unknown:
             raise ValueError(
                 f"FraudConfig names categories that the merchants do not have: "
                 f"{sorted(unknown)}."
             )
     streams = RandomStreams(random_state)
-    # random_state=None: LocationFeatures must not seed the global ``random`` module
     loc_features = LocationFeatures(
         city_radius=city_radius,
         available_terminals_radius=available_terminals_radius,
-        random_state=None,
     )
 
     customers = generate_customer_profiles(
@@ -65,7 +63,7 @@ def simulate(
     terminals = generate_terminal_profiles(
         n_terminals, loc_features, streams.generator("terminals")
     )
-    loc_features.gen_customer_available_terminals(vectorized=True)
+    loc_features.gen_customer_available_terminals()
     customers["available_terminals"] = loc_features.customers_available_terminals
 
     drifts = None
@@ -168,7 +166,9 @@ def simulate(
             position + 1, "MERCHANT_CATEGORY", columns["MERCHANT_CATEGORY"]
         )
         merchant_profiles = world.merchant_profiles
-    return V2Result(customers, terminals, transactions, loc_features, merchant_profiles)
+    return EngineResult(
+        customers, terminals, transactions, loc_features, merchant_profiles
+    )
 
 
 def _merchant_customer_columns(

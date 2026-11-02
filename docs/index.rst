@@ -35,7 +35,7 @@ Features
 * Synthetic credit card transactions over a Brazilian geography, Card-Present and
   Card-Not-Present
 * Five fraud scenarios, injected by fraudsters as new transactions, with fraudster
-  drift (or, as in v0.1, altering legitimate transactions)
+  drift
 * Customer concept drift (sudden, gradual, incremental, recurrent) and seasonality
 * Merchants and categories (inspired by the MCC)
 * Ground truth (``GT_*`` columns) for evaluation per scenario and per regime

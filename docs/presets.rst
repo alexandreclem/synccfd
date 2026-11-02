@@ -10,11 +10,12 @@ overridden.
     from synccfd import DatasetGenerator
     from synccfd.simulator import presets
 
-    # The v0.1 engine and model, exactly
-    generator = DatasetGenerator(**presets.legacy())
-
-    # Every v0.2 component: merchants, customer drift, seasonality, fraud injection
+    # Every component: merchants, customer drift, seasonality, fraud injection
+    # (the same as the defaults of DatasetGenerator)
     generator = DatasetGenerator(**presets.realistic(n_customers=1_000))
+
+    # A step of the ablation
+    generator = DatasetGenerator(**presets.ablation("drift", n_customers=1_000))
 
     # Everything in one object, with the effective configuration
     result = generator.generate_all()
@@ -27,24 +28,21 @@ overridden.
 
    * - Preset
      - What it sets
-   * - ``legacy()``
-     - ``engine="legacy"`` and ``FraudConfig()``: with no other argument, exactly
-       ``DatasetGenerator()`` of v0.1.
    * - ``realistic()``
-     - the v2 engine with ``MerchantConfig()``, ``DriftConfig()``,
+     - ``MerchantConfig()``, ``DriftConfig()``,
        ``SeasonalityConfig()`` and ``FraudConfig.realistic()``, and
        ``DEFAULT_SIZE``: 10 000 customers, 20 000 terminals, 180 days from
        2023-01-01, ``random_state=42``. With no argument, it is the dataset of the
        dissertation.
    * - ``ablation(step)``
-     - the components switched on cumulatively, in the order they were added,
-       always with the v2 engine and ``DEFAULT_SIZE``.
+     - the components switched on cumulatively, in the order they were added, with
+       ``DEFAULT_SIZE`` and fraud rates calibrated to be about the same.
 
 Ablation
 --------
 
 ``ablation(step)`` isolates the effect of each component on a model: every step
-uses the same engine, size and seed, and adds one component to the previous one.
+uses the same size and seed, and adds one component to the previous one.
 
 .. list-table::
    :header-rows: 1
@@ -53,8 +51,9 @@ uses the same engine, size and seed, and adds one component to the previous one.
    * - ``step``
      - Configuration
    * - ``"base"``
-     - the v0.1 model on the v2 engine: ``FraudConfig(rate_mode="proportional")``
-       (frauds alter legitimate transactions, as in v0.1)
+     - customers with a stationary behaviour and injected frauds of scenarios 1 to
+       4 at constant rates: ``FraudConfig(scenarios=(1, 2, 3, 4))``, no other
+       component
    * - ``"drift"``
      - plus ``DriftConfig()`` and ``SeasonalityConfig()``
    * - ``"frauds"``
@@ -63,16 +62,17 @@ uses the same engine, size and seed, and adds one component to the previous one.
    * - ``"merchants"``
      - plus ``MerchantConfig()``; the same as ``realistic()``
 
-The fraud rate changes between the steps (about 0.58%, 0.89%, 0.38% and 0.36% with
-``DEFAULT_SIZE``): with drift, the fixed amount threshold of scenario 1 labels more
-of the legitimate purchases of customers whose regime B spends more, and injection
-changes the scenarios. Compare models by metrics that do not depend on the fraud
-rate, or per scenario.
+Every step injects frauds, and the daily fractions of all the scenarios are
+multiplied by one factor per step (``ABLATION_FRAUD_SCALE``: 1.08, 1.11, 0.95 and
+1), so that the fraud rate is about the same at every step: 0.347%, 0.343%, 0.352%
+and 0.350%, on average over three seeds, with ``DEFAULT_SIZE``. The mix of
+scenarios still changes between the steps (scenario 5 only exists from
+``"frauds"`` on).
 
 Presets by name
 ---------------
 
-``presets.get("realistic")``, ``presets.get("legacy")`` and
+``presets.get("realistic")`` and
 ``presets.get("ablation:drift")`` return the same as the functions.
 ``presets.from_env()`` reads the preset from ``SYNCCFD_PRESET`` and the size from
 ``SYNCCFD_N_CUSTOMERS``, ``SYNCCFD_N_TERMINALS``, ``SYNCCFD_NB_DAYS`` and

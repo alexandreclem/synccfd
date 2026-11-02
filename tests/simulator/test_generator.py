@@ -9,9 +9,10 @@ from synccfd import DatasetGenerator
 def test_default_parameters():
     """DatasetGenerator exposes sane, explicit defaults."""
     generator = DatasetGenerator()
-    assert generator.generator.n_customers == 10000
-    assert generator.generator.n_terminals == 20000
-    assert generator.generator.nb_days == 90
+    assert generator.n_customers == 10000
+    assert generator.n_terminals == 20000
+    assert generator.nb_days == 180
+    assert generator.start_date == "2023-01-01"
 
 
 @pytest.fixture(scope="module")
@@ -25,12 +26,14 @@ def generated():
 
 
 def test_generate_returns_three_frames(generated):
-    _, customers, terminals, transactions = generated
+    generator, customers, terminals, transactions = generated
     assert isinstance(customers, pd.DataFrame)
     assert isinstance(terminals, pd.DataFrame)
     assert isinstance(transactions, pd.DataFrame)
     assert len(customers) == 20
-    assert len(terminals) == 50
+    # 50 physical terminals, plus one virtual terminal per online merchant
+    online = (generator.merchant_profiles.channel == "CNP").sum()
+    assert len(terminals) == 50 + online
 
 
 def test_transactions_have_fraud_labels(generated):

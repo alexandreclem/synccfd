@@ -10,11 +10,12 @@ Tests
 including every example notebook (with reduced sizes, through the ``SYNCCFD_*``
 variables of :doc:`presets`).
 
-- **Golden test** (``tests/golden``): the legacy engine regenerates a small v0.1.0
-  dataset and compares it exactly with the stored one.
-- **v2 against legacy** (``tests/engine/test_v2_vs_legacy.py``): the v2 engine
-  reproduces the v0.1 model statistically: relative differences of means and rates,
-  Kolmogorov–Smirnov distances and, for amounts and profiles, KS tests.
+- **Regression test** (``tests/regression``): a small output of
+  ``presets.realistic()`` (100 customers, 200 terminals, 15 days, every fraud
+  scenario) is regenerated and compared with the stored one: exactly, except floats
+  (relative tolerance ``1e-12``, for the last-bit differences between platforms) and
+  the unit of the dates. A deliberate model change regenerates it with
+  ``scripts/make_regression.py --force`` and says so in the CHANGELOG.
 - **Components**: one module per component (``test_drift.py``,
   ``test_injection.py``, ``test_merchants.py``), each with the acceptance criteria
   of its phase of the plan, and tests that switching a component off leaves the
@@ -23,8 +24,8 @@ variables of :doc:`presets`).
   ``config.json``).
 
 Coverage of the fast suite (``pytest --cov=synccfd``), version 0.2.0: **97%** of
-2 220 statements; the lowest are ``utils/data.py`` (77%, reading of formats other
-than the ones tested) and ``config.py`` (95%, some validation messages).
+1 753 statements; the lowest are ``utils/data.py`` (77%, reading of formats other
+than the ones tested), ``ground_truth.py`` (93%) and ``engine/fraud.py`` (95%).
 
 Static checks
 -------------

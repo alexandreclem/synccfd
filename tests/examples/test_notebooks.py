@@ -90,7 +90,7 @@ def test_notebook_runs(name, tmp_path, monkeypatch):
     assert FIGURES[name] <= _run(name, tmp_path, monkeypatch)
 
 
-def test_simulator_notebook_with_the_legacy_preset(tmp_path, monkeypatch):
-    # The TCC data: the same ten figures, without the category view
-    figures = _run("simulator.ipynb", tmp_path, monkeypatch, preset="legacy")
+def test_simulator_notebook_with_the_base_ablation_step(tmp_path, monkeypatch):
+    # No merchants: the same ten figures, without the category view
+    figures = _run("simulator.ipynb", tmp_path, monkeypatch, preset="ablation:base")
     assert FIGURES["simulator.ipynb"] - figures == {"fraud_scenarios_per_category.pdf"}

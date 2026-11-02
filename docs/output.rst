@@ -66,6 +66,6 @@ merchants, ``MERCHANT_ID``. ``merchant_profiles`` (with merchants): ``MERCHANT_I
 
 The effective configuration, written by ``save()`` next to the data and available as
 ``DatasetGenerator.config`` and ``SimulationResult.config``: the version of
-``synccfd``, the engine, the size, the seed and every configuration object, each as a
+``synccfd``, the size, the seed and every configuration object, each as a
 JSON object with its ``type`` and fields. It records everything needed to
 regenerate the dataset with the same version of ``synccfd``.

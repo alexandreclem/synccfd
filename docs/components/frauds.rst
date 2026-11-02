@@ -3,19 +3,14 @@ Fraud scenarios
 
 ``FraudConfig`` sets the fraud scenarios. See ``examples/frauds.ipynb``.
 
-Two mechanisms
---------------
+Fraudsters make **new** transactions, added to the customers' own ones.
+Legitimate transactions are never altered nor labelled, so a victim's history stays
+intact. ``FraudConfig()`` has the five scenarios at constant rates, proportional to
+the population; ``FraudConfig.realistic()`` (the default of ``DatasetGenerator``)
+adds fraudster drift.
 
-- ``mechanism="tamper"`` (default, v0.1): legitimate transactions are altered and
-  labelled as fraud. Scenarios 1 to 4. The defaults reproduce v0.1.
-- ``mechanism="inject"`` (v2 engine): fraudsters make **new** transactions, added to
-  the customers' own ones. Legitimate transactions are never altered nor labelled,
-  so a victim's history stays intact. Scenarios 1 to 5.
-  ``FraudConfig.realistic()`` switches on injection, the five scenarios, rates
-  proportional to the population and fraudster drift.
-
-Scenarios (injection)
----------------------
+Scenarios
+---------
 
 .. list-table::
    :header-rows: 1
@@ -60,8 +55,7 @@ Rates and fraudster drift
 With ``rate_mode="proportional"``, the number of new victims (customers, or
 terminals in scenario 2) of scenario :math:`k` on day :math:`d` is
 :math:`\mathrm{Poisson}(f_k \cdot N \cdot m_k(d))`, so the expected fraud rate does not
-depend on the size of the dataset (``rate_mode="absolute"``, the v0.1 default, uses
-fixed counts). The multiplier :math:`m_k` is the ``intensity_schedule`` of the
+depend on the size of the dataset (``rate_mode="absolute"`` uses fixed counts). The multiplier :math:`m_k` is the ``intensity_schedule`` of the
 scenario, as a function of the fraction :math:`x` of the period:
 ``IntensitySchedule("step" | "ramp" | "pulse" | "constant", start, end, base,
 level)``. In ``FraudConfig.realistic()``, scenario 2 halves from 60% of the period
@@ -81,7 +75,7 @@ probability proportional to the category's skimming risk.
 Ground truth
 ------------
 
-``TX_FRAUD`` and ``TX_FRAUD_SCENARIO`` (kept for compatibility) and, with injection,
+``TX_FRAUD`` and ``TX_FRAUD_SCENARIO`` (kept for compatibility) and
 ``GT_FRAUD_SCENARIO``, ``GT_FRAUDSTER_ID``, ``GT_CAMPAIGN_ID`` (the transactions of
 one attack) and ``GT_COMPROMISE_ID`` (the legitimate purchase where a card was read
 and the frauds later made with it).

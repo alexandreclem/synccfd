@@ -1,4 +1,4 @@
-"""Tests for the vectorised geographic sampling used by the v2 engine."""
+"""Tests for the vectorised geographic sampling."""
 
 import numpy as np
 import pandas as pd
@@ -7,15 +7,12 @@ import shapely
 from haversine import haversine_vector
 
 from synccfd.simulator.location import sampling
-from synccfd.simulator.location.features import (
-    LocationFeatures,
-    gen_available_terminals,
-)
+from synccfd.simulator.location.features import LocationFeatures
 
 
 @pytest.fixture(scope="module")
 def loc_features():
-    return LocationFeatures(random_state=None)
+    return LocationFeatures()
 
 
 def test_destination_points_are_at_the_requested_distance():
@@ -69,7 +66,7 @@ def test_cities_are_population_weighted(loc_features):
     assert (sample.index == top).mean() == pytest.approx(expected_share, rel=0.1)
 
 
-def test_points_within_radius_matches_legacy(loc_features):
+def test_points_within_radius_matches_brute_force():
     rng = np.random.default_rng(4)
     customers = pd.DataFrame(
         {"lat": rng.uniform(-24, -22, 300), "long": rng.uniform(-47, -45, 300)}
@@ -80,8 +77,11 @@ def test_points_within_radius_matches_legacy(loc_features):
     vectorised = sampling.points_within_radius(
         customers["lat"], customers["long"], terminals["lat"], terminals["long"], 10.0
     )
-    legacy = [
-        gen_available_terminals(row, terminals, 10.0)
-        for row in customers.to_dict("records")
-    ]
-    assert vectorised == legacy
+    # All pairwise distances with the haversine package
+    distances = haversine_vector(
+        customers[["lat", "long"]].to_numpy(),
+        terminals[["lat", "long"]].to_numpy(),
+        comb=True,
+    )  # terminals x customers
+    expected = [list(np.flatnonzero(distances[:, i] <= 10.0)) for i in range(300)]
+    assert vectorised == expected

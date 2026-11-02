@@ -1,6 +1,6 @@
-"""Legitimate transactions (v2 engine).
+"""Legitimate transactions.
 
-Same model as v0.1 (``legacy/generator.py``), vectorised per customer: all days of a
+Same model as v0.1, vectorised per customer: all days of a
 customer are drawn at once, from that customer's own random stream, so a customer's
 transactions do not depend on the other customers.
 

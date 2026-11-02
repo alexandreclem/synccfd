@@ -15,10 +15,7 @@ from typing import Optional
 import numpy as np
 
 KNOWN_FRAUD_SCENARIOS = (1, 2, 3, 4, 5)
-# Scenarios of v0.1; scenario 5 (card testing) only exists with injection
-TAMPER_FRAUD_SCENARIOS = (1, 2, 3, 4)
 RATE_MODES = ("absolute", "proportional")
-FRAUD_MECHANISMS = ("tamper", "inject")
 SCHEDULE_KINDS = ("constant", "step", "ramp", "pulse")
 
 
@@ -84,34 +81,27 @@ def _empty_schedule() -> Mapping[int, IntensitySchedule]:
 class FraudConfig:
     """Parameters of the fraud scenarios.
 
-    The defaults reproduce v0.1.0 exactly.
+    Fraudsters make *new* transactions, added to the customers' legitimate ones,
+    which are never altered nor labelled. Scenario 1 is a purchase far above the
+    customer's recent amounts; in scenario 2, a compromised terminal reads the cards
+    of its CP purchases (which stay legitimate), and some of those cards are later
+    cloned (CP purchases near the fraudster) or leaked to scenario 3; scenario 3
+    makes bursts of CNP purchases; scenario 4 a fast sequence of purchases near the
+    victim; scenario 5 (card testing) a few tiny CNP purchases, sometimes followed by
+    scenario 3. Each scenario's daily rate can change over time
+    (``intensity_schedule``). ``FraudConfig.realistic()`` adds fraudster drift.
 
-    Two mechanisms:
-
-    - ``"tamper"`` (default; v0.1): scenario 1 labels the legitimate transactions
-      above a fixed amount; scenarios 3 and 4 alter legitimate transactions.
-    - ``"inject"`` (v2 engine only): fraudsters make *new* transactions, added to
-      the customers' legitimate ones, which are never altered nor labelled.
-      Scenario 1 is a purchase far above the customer's recent amounts; in
-      scenario 2, a compromised terminal reads the cards of its CP purchases (which
-      stay legitimate), and some of those cards are later cloned (CP purchases near
-      the fraudster) or leaked to scenario 3; scenario 3 makes bursts of CNP
-      purchases; scenario 4 a fast sequence of purchases near the victim; scenario 5
-      (card testing) a few tiny CNP purchases, sometimes followed by scenario 3.
-      Each scenario's daily rate can change over time (``intensity_schedule``).
-
-    "Injection parameters" are used only with ``mechanism="inject"``, "Merchant
-    parameters" only with injection and ``DatasetGenerator(merchants=...)``.
+    "Merchant parameters" are used only with ``DatasetGenerator(merchants=...)``.
 
     Args:
-        scenarios: Fraud scenarios to apply (subset of 1-4; 1-5 with injection).
-        mechanism: ``"tamper"`` or ``"inject"`` (see above).
+        scenarios: Fraud scenarios to apply (subset of 1-5). Cards leaked by
+            scenario 2 and the escalations of scenario 5 go on to scenario 3 only
+            when scenario 3 is enabled.
         rate_mode: How many terminals/customers are compromised per day.
-            ``"absolute"`` uses the fixed ``*_per_day`` counts (v0.1 behaviour);
-            ``"proportional"`` draws each day's count from
+            ``"proportional"`` (default) draws each day's count from
             ``Poisson(fraction * population)`` with the ``*_fraction_per_day``
-            values, so the expected fraud rate does not depend on the dataset size.
-        s1_amount_threshold: Scenario 1 — transactions above this amount are fraud.
+            values, so the expected fraud rate does not depend on the dataset size;
+            ``"absolute"`` uses the fixed ``*_per_day`` counts.
         s2_terminals_per_day: Scenario 2 — terminals compromised per day (absolute).
         s2_terminal_fraction_per_day: Scenario 2 — fraction of terminals compromised
             per day (proportional).
@@ -126,13 +116,6 @@ class FraudConfig:
             (proportional).
         s3_duration_days: Scenario 3 — days a customer stays compromised.
         s4_duration_days: Scenario 4 — days a customer stays compromised.
-        s3_tamper_fraction: Scenario 3 — fraction of the compromised customer's
-            transactions that become fraudulent.
-        amount_multiplier: Scenarios 3 and 4 — factor applied to the amount of a
-            tampered transaction.
-        s4_cnp_prob: Scenario 4 — probability that a tampered transaction is CNP.
-
-    Injection parameters:
         s1_customers_per_day, s1_customer_fraction_per_day: Scenario 1 — victims per
             day (absolute / proportional).
         s5_customers_per_day, s5_customer_fraction_per_day: Scenario 5 — victims per
@@ -190,12 +173,9 @@ class FraudConfig:
         s5_categories: Scenario 5 — categories of the test purchases.
     """
 
-    scenarios: tuple[int, ...] = TAMPER_FRAUD_SCENARIOS
-    rate_mode: str = "absolute"
-    mechanism: str = "tamper"
-    # Scenario 1 — high amount. v0.1 value; well above most customers' spending
-    # (mean amounts are drawn from U(5, 100)).
-    s1_amount_threshold: float = 220.0
+    scenarios: tuple[int, ...] = KNOWN_FRAUD_SCENARIOS
+    # Proportional: the expected fraud rate does not depend on the dataset size.
+    rate_mode: str = "proportional"
     # Scenario 2 — compromised terminals. The proportional fraction equals the
     # absolute count at the default size (2 / 20 000 terminals).
     s2_terminals_per_day: int = 2
@@ -209,15 +189,7 @@ class FraudConfig:
     s4_customer_fraction_per_day: float = 3e-4
     s3_duration_days: int = 14
     s4_duration_days: int = 5
-    # v0.1 tampers 1/3 of the stolen-card-number customer's transactions...
-    s3_tamper_fraction: float = 1 / 3
-    # ...and multiplies the tampered amounts by 5.
-    amount_multiplier: float = 5.0
-    # v0.1 draws CP/CNP uniformly for stolen physical cards.
-    s4_cnp_prob: float = 0.5
-
-    # --- Injection (v2 engine) ---
-    # Same order of magnitude as scenarios 3 and 4 (3 / 10 000 customers).
+    # Scenarios 1 and 5: same order of magnitude as scenarios 3 and 4.
     s1_customers_per_day: int = 3
     s1_customer_fraction_per_day: float = 3e-4
     s5_customers_per_day: int = 2
@@ -259,7 +231,7 @@ class FraudConfig:
     intensity_schedule: Mapping[int, IntensitySchedule] = field(
         default_factory=_empty_schedule, hash=False
     )
-    # --- Injection with merchants (Phase 4); ignored without merchants ---
+    # --- With merchants (Phase 4); ignored without merchants ---
     # Scenario 1: the anomalous purchase is in a category where large amounts exist.
     s1_categories: tuple[str, ...] = ("eletronicos", "viagem_turismo")
     # Scenario 3: resellable or digital goods; a list of (start, categories), with
@@ -287,16 +259,12 @@ class FraudConfig:
 
     @classmethod
     def realistic(cls, **overrides) -> "FraudConfig":
-        """Injection with all five scenarios, rates proportional to the population
-        and fraudster drift: scenario 2 halves from 60% of the period on (chip
-        cards) and scenario 5 appears at 30% of the period; with merchants,
-        scenario 3 moves from electronics to digital services at 50% of the period.
-        Any field can be overridden.
+        """All five scenarios with fraudster drift: scenario 2 halves from 60% of
+        the period on (chip cards) and scenario 5 appears at 30% of the period; with
+        merchants, scenario 3 moves from electronics to digital services at 50% of
+        the period. Any field can be overridden.
         """
         values: dict = {
-            "scenarios": KNOWN_FRAUD_SCENARIOS,
-            "rate_mode": "proportional",
-            "mechanism": "inject",
             "intensity_schedule": {
                 2: IntensitySchedule("step", start=0.6, base=1.0, level=0.5),
                 5: IntensitySchedule("step", start=0.3, base=0.0, level=1.0),
@@ -317,12 +285,6 @@ class FraudConfig:
                 f"Unknown fraud scenarios {sorted(unknown)}; "
                 f"expected a subset of {KNOWN_FRAUD_SCENARIOS}."
             )
-        if self.mechanism not in FRAUD_MECHANISMS:
-            raise ValueError(
-                f"mechanism must be one of {FRAUD_MECHANISMS}, got {self.mechanism!r}."
-            )
-        if self.mechanism == "tamper" and 5 in scenarios:
-            raise ValueError('Scenario 5 requires mechanism="inject".')
         if len(set(scenarios)) != len(scenarios):
             raise ValueError(f"Duplicate fraud scenarios in {scenarios}.")
         # Accept any iterable (e.g. a list) but store a tuple, so the config stays
@@ -338,8 +300,6 @@ class FraudConfig:
             "s2_terminal_fraction_per_day",
             "s3_customer_fraction_per_day",
             "s4_customer_fraction_per_day",
-            "s3_tamper_fraction",
-            "s4_cnp_prob",
         ):
             value = getattr(self, name)
             if not 0.0 <= value <= 1.0:
@@ -359,17 +319,6 @@ class FraudConfig:
             if not isinstance(value, numbers.Integral) or value < 0:
                 raise ValueError(f"{name} must be a non-negative integer, got {value}.")
 
-        if self.s1_amount_threshold < 0:
-            raise ValueError(
-                f"s1_amount_threshold must be >= 0, got {self.s1_amount_threshold}."
-            )
-        if self.amount_multiplier <= 0:
-            raise ValueError(
-                f"amount_multiplier must be > 0, got {self.amount_multiplier}."
-            )
-        self._validate_injection()
-
-    def _validate_injection(self) -> None:
         for name in (
             "s1_customer_fraction_per_day",
             "s5_customer_fraction_per_day",
@@ -433,8 +382,6 @@ class FraudConfig:
             raise ValueError(f"intensity_schedule has unknown scenarios {unknown}.")
         if any(not isinstance(s, IntensitySchedule) for s in schedule.values()):
             raise ValueError("intensity_schedule values must be IntensitySchedule.")
-        if schedule and self.mechanism != "inject":
-            raise ValueError('intensity_schedule requires mechanism="inject".')
         # Read-only copy, so the frozen config cannot be changed through it
         object.__setattr__(self, "intensity_schedule", MappingProxyType(schedule))
 
@@ -481,12 +428,7 @@ class FraudConfig:
         ``d`` is multiplied by ``m(d)``: the Poisson mean in ``"proportional"``
         mode; in ``"absolute"`` mode, ``count * m(d)`` is rounded up or down at
         random, keeping its mean (``rng`` required).
-        Scenarios 1 and 5 have daily counts only with injection.
         """
-        if scenario in (1, 5) and self.mechanism != "inject":
-            raise ValueError(
-                f'Scenario {scenario} has daily counts only with mechanism="inject".'
-            )
         if scenario == 1:
             count, fraction = (
                 self.s1_customers_per_day,
@@ -948,7 +890,7 @@ DEFAULT_CATEGORIES: tuple[MerchantCategory, ...] = (
 
 @dataclass(frozen=True)
 class MerchantConfig:
-    """Merchants and categories (v2 engine).
+    """Merchants and categories.
 
     The terminals belong to physical merchants (``1 + Poisson(lambda)`` terminals of
     one city each); online merchants (CNP) get one virtual terminal at their head

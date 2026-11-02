@@ -27,21 +27,21 @@ Este plano define o que implementar, como e como verificar.
 
 ## Princípios (valem para todas as fases)
 
-1. **Compatibilidade total.** Com a configuração padrão, `DatasetGenerator(...).generate()`
-   produz **exatamente** os mesmos DataFrames da v0.1.0 (mesmas colunas, mesmos valores).
-   Isso é garantido por um teste de regressão "golden" criado na Fase 0, **antes** de
-   qualquer refatoração.
-2. **Tudo novo é opt-in.** Cada componente (drift, fraudes novas, merchants) é ligado por
-   um objeto de configuração próprio. `None` = desligado. Isso permite ablação na
-   dissertação: base → +drift → +fraudes realistas → +merchants.
-3. **Dois motores.**
-   - `legacy`: o código atual, intocado na lógica e na ordem dos sorteios aleatórios. É usado
-     quando nenhum componente novo está ligado.
-   - `v2`: motor novo, usado quando qualquer componente novo está ligado. Usa **apenas**
-     `numpy.random.Generator` local (`np.random.default_rng(seed)`), nunca o estado global
-     (`np.random.seed`, `random.seed`). Cada subsistema recebe seu próprio fluxo, derivado com
-     `np.random.SeedSequence(seed).spawn(k)`, para que ligar um componente não altere os
-     sorteios de outro.
+1. **Reprodutibilidade verificada.** Com os mesmos parâmetros, `generate()` produz sempre
+   os mesmos DataFrames, e um teste de regressão compara uma saída pequena com a
+   congelada. Nas Fases 0 a 4, o teste "golden" garantia que a configuração padrão
+   reproduzia **exatamente** a v0.1.0 (motor legacy); na Fase 5, o legacy foi removido e
+   o golden deu lugar a um teste de regressão sobre o `presets.realistic()` (ver
+   "Para o texto", Fase 5). A v0.1 continua disponível com `pip install synccfd==0.1.0`.
+2. **Todo componente é opcional.** Cada componente (drift, fraudes realistas, merchants)
+   tem um objeto de configuração próprio, e `None` o desliga. Isso permite a ablação na
+   dissertação: base → +drift → +fraudes realistas → +merchants. Na 0.2.0, o padrão do
+   `DatasetGenerator` liga todos (o mesmo que `presets.realistic()`).
+3. **Um motor, com aleatoriedade local.** O motor usa **apenas** `numpy.random.Generator`
+   local, nunca o estado global (`np.random.seed`, `random.seed`). Cada subsistema recebe
+   seu próprio fluxo, derivado de `np.random.SeedSequence(seed)`, para que ligar um
+   componente não altere os sorteios de outro. *Até a Fase 5 havia dois motores: o
+   `legacy` (o código da v0.1, intocado) e o `v2`; o legacy foi removido na Fase 5.*
 4. **Gabarito separado de atributos.** Toda informação "verdade" que um modelo não poderia
    observar (cenário de fraude, regime de drift, etc.) vai em colunas com prefixo `GT_`.
    `TX_FRAUD_SCENARIO` é mantida por compatibilidade. A documentação deve dizer que colunas
@@ -53,9 +53,9 @@ Este plano define o que implementar, como e como verificar.
 6. **Python 3.9.** O `pyproject.toml` declara `requires-python >= 3.9`: não usar `match`,
    nem `X | Y` em anotações avaliadas em tempo de execução (usar `Optional[...]`/`Union[...]`).
 7. **Uma fase = um PR.** Cada fase termina com `ruff check .`, `mypy src` e `pytest` passando.
-8. O notebook `examples/simulator.ipynb` continua funcionando. Ele gera as figuras do
-   simulador usadas no TCC. Toda fase precisa manter esse notebook executável; na Fase 5
-   ele passa a exportar as figuras da dissertação.
+8. O notebook `examples/simulator.ipynb` continua funcionando. Ele gerava as figuras do
+   simulador usadas no TCC; desde a Fase 5, exporta as mesmas figuras, com os mesmos
+   nomes, a partir dos dados da v0.2. Todo notebook precisa continuar executável.
 
 ## Visão geral da API final
 
@@ -66,18 +66,18 @@ from synccfd.simulator.config import (
 )
 from synccfd.simulator import presets
 
-# 1) Igual à v0.1 (motor legacy)
+# 1) O simulador completo (padrão; o mesmo que presets.realistic())
 gen = DatasetGenerator(n_customers=10_000, n_terminals=20_000, nb_days=180,
                        start_date="2023-01-01", random_state=42)
 
-# 2) Componentes ligados à parte (motor v2)
+# 2) Componentes escolhidos um a um (None desliga)
 gen = DatasetGenerator(
     n_customers=10_000, n_terminals=20_000, nb_days=180,
     start_date="2023-01-01", random_state=42,
     drift=DriftConfig(customer_fraction=0.3),                               # Fase 2
     seasonality=SeasonalityConfig(),                                        # Fase 2
     fraud=FraudConfig(rate_mode="proportional", scenarios=(1, 2, 3, 4, 5)), # Fase 3
-    merchants=MerchantConfig(),                                             # Fase 4
+    merchants=None,                                                         # Fase 4
 )
 
 # 3) Preset pronto para os experimentos do mestrado
@@ -472,12 +472,14 @@ cenários de fraude com comerciantes (Fase 3).
 
 ## Fase 5 — Presets, documentação e release 0.2.0
 
-- `presets.legacy()` gera exatamente a v0.1.
-- `presets.realistic(**overrides)` liga merchants, drift, sazonalidade e fraude v2, com
-  os padrões deste documento.
+- ~~`presets.legacy()` gera exatamente a v0.1.~~ *Removido na revisão da Fase 5,
+  junto com o motor legacy (seção 5.2).*
+- `presets.realistic(**overrides)` liga merchants, drift, sazonalidade e fraude injetada,
+  com os padrões deste documento.
 - `presets.ablation(step)`, com `step ∈ {"base", "drift", "frauds", "merchants"}`: liga os
-  componentes cumulativamente, na mesma ordem das fases, usando o motor v2 em todas as
-  etapas, para comparação justa. Esse é o desenho experimental da dissertação.
+  componentes cumulativamente, na mesma ordem das fases, para comparação justa. Esse é
+  o desenho experimental da dissertação. *Na revisão: todas as etapas usam fraudes
+  injetadas, com as frações calibradas para a taxa de fraude ficar parecida.*
 - `SimulationResult.config` serializado em `config.json` no `save()`, junto com
   `synccfd.__version__`, para reprodutibilidade.
 - Documentação (Sphinx): uma página por componente, com as fórmulas do *drift* (Fase 2), os
@@ -492,7 +494,8 @@ cenários de fraude com comerciantes (Fase 3).
 - README: novas colunas no esquema e aviso sobre `GT_*`.
 - CHANGELOG `0.2.0`, versão em `pyproject.toml` e `__init__.py`, atualizar `CITATION.cff`.
 - Atualizar `examples/simulator.ipynb` para gerar as figuras da dissertação: um parâmetro
-  escolhe o preset (`legacy` ou `realistic`) e o tamanho; cada figura é salva em PDF em
+  escolhe o preset (`realistic` ou uma etapa da ablação; *a opção `legacy` saiu na
+  revisão*) e o tamanho; cada figura é salva em PDF em
   `docs/figures/exploratoria/` com os nomes da lista abaixo; mantém as mesmas figuras do
   TCC, na mesma ordem, agora com os dados da v0.2, acrescentando o cenário 5 e, com
   comerciantes, a visão por categoria. O diagrama do fluxo do simulador é redesenhado
@@ -516,11 +519,18 @@ cenários de fraude com comerciantes (Fase 3).
   `docs/figures/dataset_stats.json`. O "Fechamento do [SIM]" usa esses números.
 
 ### 5.1 Critérios de aceite
-- [x] Golden test passa; teste: `presets.legacy()` gera exatamente a v0.1.
+- [x] Teste de regressão sobre o `presets.realistic()` (no lugar do golden), com as
+      mesmas regras de tolerância, criado e integrado antes da remoção do legacy.
+      *Passa no CI em Python 3.9 a 3.12 (Linux) e localmente (Windows).*
 - [x] Teste: `presets.realistic()` liga comerciantes, *drift*, sazonalidade e
-      `FraudConfig.realistic()`; `presets.ablation(step)` liga os componentes
-      cumulativamente, sempre no v2, e `ablation("merchants") == realistic()`; cada
-      etapa da ablação gera dados.
+      `FraudConfig.realistic()`, e é o padrão do `DatasetGenerator`;
+      `presets.ablation(step)` liga os componentes cumulativamente, todas as etapas
+      com fraudes injetadas, e `ablation("merchants") == realistic()`; cada etapa
+      gera dados.
+- [x] Taxa de fraude parecida entre as etapas da ablação (frações calibradas por
+      etapa). *0,347%, 0,343%, 0,352% e 0,350%, média de 3 sementes.*
+- [x] Motor legacy removido: `simulator/legacy/`, o golden, o parâmetro `engine`,
+      `mechanism="tamper"`, `presets.legacy()` e a opção `legacy` do notebook.
 - [x] Teste: `generate_all()` retorna um `SimulationResult` com os comerciantes e a
       configuração; `save()` grava `config.json`, com `synccfd.__version__`, e o
       arquivo relido é igual a `DatasetGenerator.config`.
@@ -530,30 +540,38 @@ cenários de fraude com comerciantes (Fase 3).
       cada configuração e como estender.
 - [x] Engenharia de software documentada (`docs/engineering.rst`): cobertura medida,
       CI, tipagem e processo de release.
-- [x] README com as novas colunas no esquema e o aviso sobre `GT_*`; CHANGELOG
-      `0.2.0`; versão 0.2.0 em `pyproject.toml`, `__init__.py`, `CITATION.cff` e na
+- [x] README com as novas colunas no esquema e o aviso sobre `GT_*`; README e
+      CHANGELOG dizem que a 0.2.0 quebra a compatibilidade e que a v0.1 continua
+      disponível com `pip install synccfd==0.1.0`; versão 0.2.0 em `pyproject.toml`, `__init__.py`, `CITATION.cff` e na
       documentação.
-- [x] `examples/simulator.ipynb` escolhe o preset (`legacy` ou `realistic`) e o
-      tamanho e grava as 10 figuras do TCC, na mesma ordem e com os mesmos nomes, em
-      `docs/figures/exploratoria/`; teste com os dois presets.
+- [x] `examples/simulator.ipynb` escolhe o preset (`realistic` ou uma etapa da
+      ablação) e o tamanho e grava as 10 figuras do TCC, na mesma ordem e com os
+      mesmos nomes, em `docs/figures/exploratoria/`; teste com `realistic` e com
+      `ablation:base`.
+- [x] Nas figuras da dissertação, nenhum rótulo ou legenda usa "v0.1", "v2",
+      "legacy" ou "engine"; o diagrama de módulos não tem mais a escolha entre
+      motores.
 - [x] `scripts/make_figures.py` regenera todas as figuras e `dataset_stats.json` com a
       mesma configuração; o "Fechamento do [SIM]" está preenchido com esses números.
 - [ ] Lançamento da 0.2.0 (tag, *release* no GitHub e PyPI): só depois da revisão.
 
-### 5.2 Passo futuro: remover o motor legacy (só no fim do mestrado)
-Registrado para o futuro: **não executar agora**. A dissertação compara a v0.1 com
-a v0.2 e usa o legacy como referência (golden test, `presets.legacy()`, notebook do
-simulador com os dados do TCC). Quando o mestrado terminar, numa versão nova (1.0.0,
-por ser uma mudança incompatível):
+### 5.2 Remoção do motor legacy (decidida na revisão da Fase 5)
+Registrada antes como passo para o fim do mestrado, a remoção foi antecipada para a
+Fase 5, antes do lançamento da 0.2.0: a dissertação usa só o SynCCFD v0.2, e a v0.1
+continua disponível no PyPI. Ordem seguida:
 
-1. apagar `src/synccfd/simulator/legacy/` e o golden test (`tests/golden/` e
-   `scripts/make_golden.py`), e os testes que comparam o v2 com o legacy;
-2. tirar o parâmetro `engine` do `DatasetGenerator`, tornando o v2 o motor padrão e
-   único, e remover `presets.legacy()`;
-3. remover `mechanism="tamper"` do `FraudConfig` (a injeção passa a ser o único
-   mecanismo, e os parâmetros só usados pela adulteração saem);
-4. documentar no README e no CHANGELOG que a v0.1 continua disponível com
-   `pip install synccfd==0.1.0`.
+- [x] criar o teste de regressão sobre o `presets.realistic()`, no lugar do golden, e
+      fazer o commit **antes** de remover qualquer coisa (`b502349`; CI verde);
+- [x] apagar `src/synccfd/simulator/legacy/`, o golden (`tests/golden/` e
+      `scripts/make_golden.py`) e os testes que comparavam o v2 com o legacy;
+- [x] tirar o parâmetro `engine` do `DatasetGenerator`; o motor único, com o
+      `presets.realistic()`, vira o padrão; remover `presets.legacy()`,
+      `FraudSimulator` e o caminho por ponto do `LocationFeatures`;
+- [x] remover `mechanism="tamper"` do `FraudConfig` e os parâmetros usados só pela
+      adulteração (`s1_amount_threshold`, `s3_tamper_fraction`, `amount_multiplier`,
+      `s4_cnp_prob`);
+- [x] documentar no README e no CHANGELOG que a 0.2.0 quebra a compatibilidade e que a
+      v0.1 continua disponível com `pip install synccfd==0.1.0`.
 
 ---
 
@@ -569,12 +587,12 @@ por ser uma mudança incompatível):
 | tema | decisão |
 |---|---|
 | reproduzir o artigo | não é possível com a v0.1 (a ordem dos sorteios mudou na reescrita). A linha de base da dissertação será refeita sobre o SynCCFD |
-| fraude por injeção | muda a semântica dos cenários 1 a 4 no v2 (o 2 compromete cartões, e a fraude é o uso posterior deles). Justificativa na dissertação: o histórico legítimo do cliente é preservado, o que é mais realista e evita contaminar os atributos de agregação |
+| fraude por injeção | é o único mecanismo desde a Fase 5 e muda a semântica dos cenários 1 a 4 em relação à v0.1 (o 2 compromete cartões, e a fraude é o uso posterior deles). Justificativa na dissertação: o histórico legítimo do cliente é preservado, o que é mais realista e evita contaminar os atributos de agregação |
 | ordem das fases | *drift* → fraudes → comerciantes. As fases anteriores funcionam sem os comerciantes, o que mantém cada componente opcional e permite a ablação |
-| limiar fixo do cenário 1 | no v2, substituído por fraude injetada: compra acima de fator × quantil alto das compras recentes do próprio cliente; transações legítimas nunca viram fraude. O legacy mantém o limiar fixo. Motivo: com o limiar fixo, 86% do cenário 1 vinha de clientes no regime B (Fase 2) |
-| taxa de fraude e escala | `rate_mode="proportional"` é o padrão nos presets novos |
+| limiar fixo do cenário 1 | substituído por fraude injetada: compra acima de fator × quantil alto das compras recentes do próprio cliente; transações legítimas nunca viram fraude. Motivo: com a regra de rótulo por limiar fixo, 86% do cenário 1 vinha de clientes no regime B (Fase 2). A comparação continua na dissertação, aplicando o limiar de R$ 220 diretamente aos dados |
+| taxa de fraude e escala | `rate_mode="proportional"` é o padrão do `FraudConfig`; na ablação, as frações são calibradas por etapa para a taxa ficar parecida |
 | drift × sazonalidade | separados: sazonalidade é estacionária e não deve ser contada como drift |
-| motor legacy | mantido até o fim do mestrado, como referência da v0.1. A remoção (legacy, golden, `engine`, `mechanism="tamper"`) está registrada como passo futuro na seção 5.2 |
+| motor legacy | removido na Fase 5 (seção 5.2), antes do lançamento da 0.2.0, que quebra a compatibilidade; a v0.1 continua disponível com `pip install synccfd==0.1.0`. Um teste de regressão sobre o `presets.realistic()` substitui o golden |
 
 ---
 
@@ -1868,21 +1886,50 @@ A Fase 5 fecha a v0.2: dá ao SynCCFD uma API de experimentos, documentação e 
 procedimento único para gerar as figuras da dissertação.
 
 **Presets.** O módulo `synccfd.simulator.presets` devolve argumentos prontos para o
-`DatasetGenerator`. `legacy()` é o motor e o modelo da v0.1, sem nenhuma diferença
-(teste contra a geração direta). `realistic()` liga todos os componentes da v0.2 —
+`DatasetGenerator`. `realistic()` liga todos os componentes da v0.2 —
 comerciantes, *drift* de clientes, sazonalidade e fraudes injetadas
 (`FraudConfig.realistic()`) — e, sem argumentos, é a configuração final do dataset da
 dissertação: 10 000 clientes, 20 000 terminais, 180 dias a partir de 2023-01-01,
 `random_state=42` (`presets.DEFAULT_SIZE`). `ablation(step)` é o desenho experimental:
-os componentes entram cumulativamente, na ordem das fases, sempre no motor v2 e com
-o mesmo tamanho e a mesma semente, para que a diferença entre duas etapas venha só do
-componente acrescentado.
+os componentes entram cumulativamente, na ordem das fases, com o mesmo tamanho e a
+mesma semente, para que a diferença entre duas etapas venha só do componente
+acrescentado. Todas as etapas usam fraudes injetadas: `base` tem clientes
+estacionários e os cenários 1 a 4 com taxas constantes; `drift` acrescenta o *drift*
+de clientes e a sazonalidade; `frauds` troca as fraudes pelas do
+`FraudConfig.realistic()` (cinco cenários e *drift* dos fraudadores); `merchants`
+acrescenta os comerciantes e é igual a `realistic()`. As frações diárias de todos os
+cenários são multiplicadas por um fator por etapa (`ABLATION_FRAUD_SCALE`), calibrado
+para que a taxa de fraude seja parecida em todas as etapas.
 
 **Resultado e configuração.** `generate_all()` devolve um `SimulationResult` com os
 clientes, os terminais, os comerciantes, as transações e a configuração efetiva.
 `DatasetGenerator.config` serializa essa configuração em tipos JSON (cada objeto de
 configuração com o seu tipo e os seus campos), com a versão do `synccfd`, e `save()`
 a grava em `config.json`, ao lado dos dados.
+
+**Remoção do motor legacy (revisão da Fase 5).** Antes do lançamento, o motor legacy
+foi removido, e a 0.2.0 passou a ter um único motor. Primeiro, um teste de regressão
+sobre o `presets.realistic()` (100 clientes, 200 terminais, 15 dias,
+`random_state=42`, com frações de fraude maiores para que os cinco cenários apareçam)
+substituiu o golden, com as mesmas regras de tolerância (igualdade exata, exceto
+números reais com tolerância relativa de $10^{-12}$ e a unidade das datas); ele foi
+integrado e passou no CI, em Python 3.9 a 3.12, antes de qualquer remoção. Depois
+saíram `simulator/legacy/`, o golden, o parâmetro `engine`, `FraudSimulator`,
+`mechanism="tamper"` (com os parâmetros usados só pela adulteração),
+`presets.legacy()`, a opção `legacy` do notebook do simulador e o caminho por ponto do
+`LocationFeatures` (com as dependências `geopy` e `tqdm`). O `DatasetGenerator()` sem
+argumentos passou a ser o simulador completo (o mesmo que `presets.realistic()`), e
+`None` desliga um componente. O teste de regressão continuou passando depois da
+remoção, e as estatísticas do dataset final não mudaram: a remoção não alterou os
+dados. A v0.1 continua disponível com `pip install synccfd==0.1.0`.
+
+**19,2% de clientes vítimas, por escolha.** No dataset final, 1 920 dos 10 000
+clientes (19,2%) sofrem alguma fraude em 180 dias. É mais do que em dados reais, e é
+deliberado: as frações diárias padrão (da ordem de $3 \times 10^{-4}$ por cenário)
+garantem exemplos suficientes de cada cenário para treinar e avaliar modelos por
+cenário (de 233 vítimas, no cenário 2, a 697, no cenário 3), mantendo a taxa de
+fraude por transação em 0,36%, perto da de bases públicas. Quem precisar de menos
+vítimas reduz as frações do `FraudConfig`, e a taxa cai na mesma proporção.
 
 **Documentação.** A documentação Sphinx ganhou páginas de *presets*, do esquema de
 saída (com o aviso sobre as colunas `GT_*`), de cada componente (*drift* e
@@ -1892,7 +1939,8 @@ cada configuração e como estender o simulador) e de engenharia de software
 (`docs/engineering.rst`: testes, cobertura, verificação estática, CI e processo de
 lançamento). Os dois diagramas são desenhados por `scripts/diagrams.py`, em SVG para
 a documentação e em PDF para a dissertação; o diagrama do fluxo do simulador foi
-redesenhado junto com o de arquitetura.
+redesenhado junto com o de arquitetura, e o de módulos não tem mais a escolha entre
+motores.
 
 **Figuras e estatísticas.** Todos os notebooks de exemplo geram agora o mesmo
 dataset, `presets.from_env()`: a configuração final, cujo tamanho pode ser trocado
@@ -1900,10 +1948,12 @@ pelas variáveis `SYNCCFD_*` (os testes as usam para rodar em tamanho reduzido).
 `scripts/make_figures.py` executa os quatro notebooks com essa configuração, regenera
 todas as figuras de `docs/figures/` (fases 2 a 4, `exploratoria/` e `arquitetura/`)
 e grava as estatísticas do dataset em `docs/figures/dataset_stats.json`, usadas no
-"Fechamento do [SIM]". O notebook do simulador escolhe o *preset* (`legacy`, os dados
-do TCC, ou `realistic`) e o tamanho, e grava as 10 figuras do TCC na mesma ordem e
-com os mesmos nomes, acrescentando o cenário 5 e, com comerciantes, uma figura da
-taxa de fraude por categoria.
+"Fechamento do [SIM]". O notebook do simulador escolhe o *preset* (`realistic` ou uma
+etapa da ablação) e o tamanho, e grava as 10 figuras do TCC na mesma ordem e com os
+mesmos nomes, acrescentando o cenário 5 e, com comerciantes, uma figura da taxa de
+fraude por categoria. Nenhum rótulo ou legenda das figuras usa "v0.1", "v2", "legacy"
+ou "engine": as regras são descritas pelo que fazem (por exemplo, "regra de rótulo
+por limiar fixo" × "fraude injetada").
 
 **Versão.** A versão passou a 0.2.0 em `pyproject.toml`, `__init__.py`,
 `CITATION.cff` e na documentação; o CHANGELOG tem a seção `0.2.0`. O lançamento (tag,
@@ -1914,8 +1964,8 @@ taxa de fraude por categoria.
 |---|---|---|
 | configuração final: `presets.realistic()` com 10 000 clientes, 20 000 terminais, 180 dias, `random_state=42` | 365 dias, para ver a sazonalidade anual inteira | é o tamanho em que todas as fases foram medidas (os números das fases continuam comparáveis) e o do TCC; gera em cerca de 33 s e ocupa cerca de 760 MB, o que permite rodar a ablação e várias sementes |
 | tamanho e semente dentro do *preset* (`DEFAULT_SIZE`) | *presets* só com componentes, e o tamanho sempre passado à parte | `DatasetGenerator(**presets.realistic())` reproduz o dataset da dissertação sem mais nenhum parâmetro |
-| `legacy()` com os padrões do `DatasetGenerator` (90 dias a partir de 2018-04-01) | `legacy()` com `DEFAULT_SIZE` | "gerar exatamente a v0.1" significa a mesma chamada da v0.1; o notebook do simulador passa `DEFAULT_SIZE` aos dois *presets*, para compará-los |
-| ablação: `base` (modelo da v0.1 no v2, com taxas proporcionais) → `drift` (+ *drift* e sazonalidade) → `frauds` (injeção no lugar da adulteração) → `merchants` | começar sem fraude | os modelos precisam de rótulos em todas as etapas; a ordem é a das fases, e cada etapa troca ou acrescenta um só componente |
+| ablação: `base` (clientes estacionários, cenários 1 a 4 injetados com taxas constantes) → `drift` (+ *drift* e sazonalidade) → `frauds` (fraudes do `realistic()`) → `merchants`, todas com fraudes injetadas | `base` com o modelo de fraude da v0.1 (adulteração), como na primeira versão desta fase | com a adulteração, a etapa `drift` tinha 0,89% de fraude contra 0,36% da `merchants`, porque o limiar fixo do cenário 1 rotulava as compras do regime B; com a mesma mecânica de fraude em todas as etapas, a diferença entre etapas vem do componente acrescentado (revisão da Fase 5) |
+| frações de fraude calibradas por etapa da ablação (um fator único sobre as frações de todos os cenários) | deixar a taxa variar e usar só métricas insensíveis à taxa | taxas parecidas tornam as métricas comparáveis entre etapas; um fator único mantém a mistura de cenários de cada etapa |
 | notebooks leem a configuração de `presets.from_env()` (variáveis `SYNCCFD_*`) | trocar os tamanhos no texto do notebook, em memória, como antes | um único lugar define a configuração; os testes e o `make_figures.py` só mudam variáveis de ambiente, e o notebook continua executável sozinho |
 | notebooks das fases 2 a 4 sobre o dataset final (com todos os componentes) | manter cada notebook com só o seu componente | as figuras da dissertação descrevem o dataset dos experimentos; quando o *preset* não tem o componente (por exemplo, sem comerciantes), o notebook gera os mesmos dados com ele |
 | no notebook de *drift*, a mudança de valor é a razão dos fatores de gasto, e as linhas tracejadas são os valores médios observados em cada regime | os valores médios do gabarito (`GT_B_mean_amount`) | com comerciantes, o valor vem da categoria e do fator de gasto, e `GT_B_mean_amount` não existe |
@@ -1926,26 +1976,37 @@ taxa de fraude por categoria.
 | diagramas desenhados com o matplotlib, num script | Graphviz ou uma ferramenta de desenho | sem dependências externas, versionados e regenerados com as figuras |
 | `make_figures.py` fixa a data de criação dos PDFs e SVGs (`SOURCE_DATE_EPOCH`) e os ids dos SVGs | deixar a data da execução | os dados são determinísticos; com a data fixa, uma figura que não mudou é regravada igual, e o `git diff` mostra só as figuras que mudaram |
 | documentação em inglês | português | a documentação e o README do pacote já são em inglês; o texto da dissertação usa este plano |
-| a remoção do motor legacy fica registrada como passo futuro (seção 5.2) | remover agora | a dissertação compara a v0.1 com a v0.2 e usa o legacy como referência |
+| remover o motor legacy na Fase 5, antes do lançamento, com um teste de regressão sobre o `presets.realistic()` no lugar do golden | manter o legacy até o fim do mestrado (o registro anterior da seção 5.2) | decisão da revisão: a dissertação usa só a v0.2, e a v0.1 continua no PyPI (`synccfd==0.1.0`); um único motor simplifica a API, a documentação e os testes |
+| teste de regressão com frações de fraude maiores que as do `realistic()` | o `realistic()` exato | com 100 clientes e 15 dias, as frações padrão quase não geram fraude; com elas maiores, os cinco cenários aparecem e o teste cobre todo o código de fraude |
+| `DatasetGenerator()` = `presets.realistic()`; `None` desliga um componente | padrões sem componentes (como na v0.1) | a 0.2.0 já quebra a compatibilidade; o padrão passa a ser o simulador completo, que é o dataset da dissertação |
+| vazamentos do cenário 2 e escaladas do cenário 5 só viram cenário 3 se ele estiver ligado | gerar o cenário 3 mesmo sem ele em `scenarios` | `scenarios` define quais rótulos podem aparecer; antes, ligar só o cenário 2 (ou só o 5) falhava, porque o fluxo aleatório do cenário 3 não existia; com os cinco ligados, nada muda |
+| 19,2% de clientes vítimas em 180 dias | frações menores, mais próximas da taxa de vítimas real | exemplos suficientes de cada cenário (de 233 a 697 vítimas por cenário), com 0,36% de fraude por transação |
 
 ### Parâmetros finais (padrões)
 `presets.DEFAULT_SIZE`: `n_customers=10 000`, `n_terminals=20 000`, `nb_days=180`,
 `start_date="2023-01-01"`, `random_state=42`.
 
-| *preset* | motor | fraude | *drift* e sazonalidade | comerciantes |
+| *preset* | fraude | fator das frações | *drift* e sazonalidade | comerciantes |
 |---|---|---|---|---|
-| `legacy()` | legacy | `FraudConfig()` (v0.1) | — | — |
-| `ablation("base")` | v2 | `FraudConfig(rate_mode="proportional")` | — | — |
-| `ablation("drift")` | v2 | idem | `DriftConfig()`, `SeasonalityConfig()` | — |
-| `ablation("frauds")` | v2 | `FraudConfig.realistic()` | idem | — |
-| `ablation("merchants")` = `realistic()` | v2 | idem | idem | `MerchantConfig()` |
+| `ablation("base")` | `FraudConfig(scenarios=(1, 2, 3, 4))` | 1,08 | — | — |
+| `ablation("drift")` | idem | 1,11 | `DriftConfig()`, `SeasonalityConfig()` | — |
+| `ablation("frauds")` | `FraudConfig.realistic()` | 0,95 | idem | — |
+| `ablation("merchants")` = `realistic()` = padrão do `DatasetGenerator` | idem | 1 | idem | `MerchantConfig()` |
 
-Variáveis de ambiente de `presets.from_env()`: `SYNCCFD_PRESET` (`legacy`,
-`realistic` ou `ablation:<etapa>`), `SYNCCFD_N_CUSTOMERS`, `SYNCCFD_N_TERMINALS`,
+`FraudConfig()` passou a ter os cinco cenários e `rate_mode="proportional"`.
+
+Variáveis de ambiente de `presets.from_env()`: `SYNCCFD_PRESET` (`realistic` ou
+`ablation:<etapa>`), `SYNCCFD_N_CUSTOMERS`, `SYNCCFD_N_TERMINALS`,
 `SYNCCFD_NB_DAYS` e `SYNCCFD_SEED`.
 
 ### Equações / regras
-Sem modelo novo. `config.json` = `{synccfd_version, engine, n_customers, n_terminals,
+Sem modelo novo. Calibração da ablação: com fator 1, mede-se a taxa de fraude $r_e$ de
+cada etapa $e$ (média de 3 sementes, `DEFAULT_SIZE`); o fator é
+$k_e = r_{\text{merchants}} / r_e$, arredondado para duas casas, e multiplica as frações
+diárias de todos os cenários. A taxa é aproximadamente proporcional às frações, então
+uma iteração bastou.
+
+`config.json` = `{synccfd_version, n_customers, n_terminals,
 nb_days, city_radius, available_terminals_radius, start_date, random_state, fraud,
 drift, seasonality, merchants}`, em que cada configuração é `{"type": <classe>,
 <campo>: <valor>, ...}` (tuplas viram listas, mapas viram objetos com chaves em
@@ -1960,8 +2021,9 @@ completa, na ordem do cap. 4, está no "Fechamento do [SIM]".
 
 | arquivo | legenda proposta | seção da dissertação |
 |---|---|---|
-| `docs/figures/arquitetura/arquitetura_modulos.pdf` | Módulos do pacote `synccfd`: o `DatasetGenerator` escolhe o motor (v2 ou legacy); em tracejado, os componentes opcionais. | 4.2 Arquitetura |
-| `docs/figures/arquitetura/fluxo_geracao.pdf` | Fluxo de geração do motor v2, da semente às saídas, com a configuração que comanda cada etapa opcional. | 4.2 Arquitetura |
+| `docs/figures/arquitetura/arquitetura_modulos.pdf` | Módulos do pacote `synccfd`: o `DatasetGenerator`, os *presets* e as configurações, o motor de simulação (`simulate()`), a geografia e o gabarito; em tracejado, os componentes opcionais. | 4.2 Arquitetura |
+| `docs/figures/arquitetura/fluxo_geracao.pdf` | Fluxo de geração do simulador, da semente às saídas, com a configuração que comanda cada etapa opcional. | 4.2 Arquitetura |
+| `docs/figures/fase3/fraudes_cenario1_regime_b.pdf` (nova legenda) | Cenário 1 e *drift*, nos mesmos dados: fração das transações legítimas que vêm do regime B; fração das transações que a regra de rótulo por limiar fixo (R$ 220, aplicada diretamente aos dados) rotularia que vêm do regime B; fração das vítimas da fraude injetada do cenário 1 que estavam no regime B no dia da fraude. | 4.4 Componentes novos — fraudes |
 | `docs/figures/exploratoria/transactions_table.pdf` | As cinco primeiras transações do dataset final. | 4.6 Saídas e gabarito |
 | `docs/figures/exploratoria/simulator_txs_time_per_type.pdf` | Horário das transações CP e CNP nos cinco primeiros dias (amostra de 10 000). | 4.3 Modelo de simulação |
 | `docs/figures/exploratoria/simulator_txs_time_and_amounts.pdf` | Horário de todas as transações nos cinco primeiros dias e distribuição dos valores (escala log). | 4.8 Análise exploratória |
@@ -1978,35 +2040,52 @@ completa, na ordem do cap. 4, está no "Fechamento do [SIM]".
 | medida | valor | configuração |
 |---|---|---|
 | estatísticas do dataset final | ver "Fechamento do [SIM]" e `docs/figures/dataset_stats.json` | `presets.realistic()` |
-| reprodutibilidade | três execuções de `make_figures.py` deram `dataset_stats.json` idêntico, byte a byte; com a data fixa, as figuras do simulador e os diagramas também saíram idênticos numa segunda execução | idem |
+| reprodutibilidade | três execuções de `make_figures.py` deram `dataset_stats.json` idêntico, byte a byte; com a data fixa, as figuras do simulador e os diagramas também saíram idênticos numa segunda execução; depois da remoção do legacy, os dados e as estatísticas ficaram idênticos (só saíram da configuração os campos removidos) | idem |
 | tempo de geração e memória | 32,5 s; 3 735 430 transações, 760 MB em memória | idem (uma execução) |
-| taxa de fraude por etapa da ablação | `base` 0,577%; `drift` 0,893%; `frauds` 0,380%; `merchants` 0,356% | `presets.ablation(step)` |
-| tempo de `make_figures.py` | simulador 62–100 s; *drift* 31–33 s; fraudes 291–341 s (11 gerações, 10 sementes); comerciantes 150–175 s; estatísticas 30–44 s | configuração final, duas execuções |
-| cobertura de testes (suíte rápida) | 97% de 2 220 comandos; menores: `utils/data.py` 77%, `config.py` 95%, `ground_truth.py` 93% | `pytest --cov=synccfd` |
-| testes | 179 passaram na suíte rápida (1 min 42 s) e 17 na lenta (9 min 11 s), que inclui os quatro notebooks e o do simulador com o *preset* `legacy` | — |
+| taxa de fraude por etapa da ablação, sem calibração (fator 1) | `base` 0,323%; `drift` 0,314%; `frauds` 0,369%; `merchants` 0,350% | `presets.ablation(step)`, média das sementes 42, 7 e 123 |
+| taxa de fraude por etapa da ablação, calibrada | `base` 0,347%; `drift` 0,343%; `frauds` 0,352%; `merchants` 0,350% (diferença máxima de 2,7% entre etapas; entre sementes, cerca de ±6%) | idem |
+| taxa de fraude por etapa, primeira versão (`base` e `drift` com adulteração) | `base` 0,577%; `drift` 0,893%; `frauds` 0,380%; `merchants` 0,356% | semente 42 |
+| regra de rótulo por limiar fixo × fraude injetada (cenário 1), dataset final | 13,1% das transações legítimas vêm do regime B; das que o limiar de R$ 220 rotularia, 13,9%; das vítimas da fraude injetada, 12,2% | `presets.realistic()` |
+| tempo de `make_figures.py` | simulador 62–100 s; *drift* 31–56 s; fraudes 291–375 s (11 gerações, 10 sementes); comerciantes 150–186 s; estatísticas 30–49 s | configuração final, três execuções |
+| cobertura de testes (suíte rápida) | 97% de 1 753 comandos (antes da remoção do legacy: 97% de 2 220); menores: `utils/data.py` 77%, `ground_truth.py` 93%, `engine/fraud.py` 95% | `pytest --cov=synccfd` |
+| testes | 163 passaram na suíte rápida (2 min 15 s, com cobertura) e 6 na lenta (2 min 40 s), que inclui os quatro notebooks e o do simulador com `ablation:base` | — |
 
 ### Testes que comprovam o comportamento
+- `tests/regression/test_v2_reproducibility.py`: a saída pequena do
+  `presets.realistic()` é igual à congelada (clientes, terminais, comerciantes e
+  transações), cobre os cinco cenários, e uma mudança de $5 \times 10^{-5}$ no
+  `s3_amount_factor` é detectada (a tolerância não esconde mudanças reais).
+- `tests/engine/test_engine.py`: o padrão do `DatasetGenerator` é o `realistic()`;
+  `None` desliga componentes; esquema do modelo base; cronologia, reprodutibilidade,
+  estado aleatório global intocado; cada cenário sozinho só gera o seu rótulo; as
+  fraudes são acrescentadas sem mudar as transações legítimas.
 - `tests/simulator/test_presets.py`:
-  - `test_legacy_preset_is_v0_1`: `presets.legacy()` gera os mesmos três DataFrames
-    que a chamada direta da v0.1;
-  - `test_realistic_preset_switches_everything_on`, `test_ablation_is_cumulative` e
-    `test_every_ablation_step_generates`: componentes de cada *preset*, ablação
-    cumulativa e `ablation("merchants") == realistic()`;
+  - `test_realistic_preset_switches_everything_on`, `test_ablation_is_cumulative`,
+    `test_ablation_scales_the_fraud_fractions` e `test_every_ablation_step_generates`:
+    componentes de cada *preset*, ablação cumulativa com fraudes injetadas, fator das
+    frações e `ablation("merchants") == realistic()`;
   - `test_generate_all_and_config_json` e `test_config_without_components`:
     `SimulationResult`, `config.json` igual a `DatasetGenerator.config` e
     serializável sem componentes;
   - `test_get_by_name` e `test_from_env`.
 - `tests/examples/test_notebooks.py` (`slow`): os quatro notebooks rodam com a
   configuração final reduzida pelas variáveis `SYNCCFD_*` e gravam todas as figuras;
-  o do simulador também com o *preset* `legacy` (as 10 figuras do TCC, sem a de
+  o do simulador também com `ablation:base` (as 10 figuras do TCC, sem a de
   categoria).
-- Golden test e testes das fases anteriores sem mudanças.
+- `tests/simulator/test_fraud_config.py`: padrões novos do `FraudConfig` e recusa dos
+  parâmetros removidos.
+- Saíram: o golden (`tests/golden/`), a comparação estatística do v2 com o legacy
+  (`test_v2_vs_legacy.py`) e os testes da adulteração; os demais testes das fases
+  anteriores passaram a desligar explicitamente os componentes que não testam.
 
 ### Desvios do plano
 - `DEFAULT_CATEGORIES` continua em `config.py` (e não em `presets.py`): é um padrão do
   `MerchantConfig`, como os demais padrões.
-- `presets` ganhou `get(name)` e `from_env()`, além de `legacy`, `realistic` e
-  `ablation`.
+- `presets` ganhou `get(name)` e `from_env()`, além de `realistic` e `ablation`;
+  `legacy()` existiu na primeira versão da fase e saiu com o motor legacy.
+- O motor legacy foi removido nesta fase (seção 5.2), e não no fim do mestrado, como
+  estava registrado; a ablação passou a usar fraudes injetadas em todas as etapas, com
+  as frações calibradas.
 - `transactions_table` é PDF, e não PNG; o notebook do simulador tem uma 11ª figura
   (`fraud_scenarios_per_category`), só com comerciantes.
 - As figuras do simulador ficam em `docs/figures/exploratoria/`, como no plano, e os
@@ -2016,26 +2095,26 @@ completa, na ordem do cap. 4, está no "Fechamento do [SIM]".
 ### Pendências / ideias
 - Lançar a 0.2.0: tag `v0.2.0` e *release* no GitHub (que publica no PyPI), com a data
   no CHANGELOG e o `date-released` no `CITATION.cff`.
-- A taxa de fraude muda entre as etapas da ablação (0,58% a 0,89%): com *drift*, o
-  limiar fixo do cenário 1 rotula mais compras de clientes no regime B, e a injeção
-  muda os cenários. Ao comparar etapas, usar métricas pouco sensíveis à taxa (por
-  exemplo, AUC-PR normalizada pela taxa, ou métricas por cenário), ou ajustar as
-  frações para igualar as taxas.
-- 19,2% dos clientes sofrem alguma fraude em 180 dias no dataset final. É alto para
-  dados reais, mas dá exemplos suficientes de cada cenário; se for preciso, as
-  frações diárias do `FraudConfig` reduzem esse número.
+- A mistura de cenários ainda muda entre as etapas da ablação (o cenário 5 só existe
+  a partir de `frauds`, e o 2 cai pela metade em 60% do período); vale reportar as
+  métricas também por cenário.
+- A comparação do cenário 1 mudou com os comerciantes: no dataset final, o limiar de
+  R$ 220 tira só 13,9% dos rótulos do regime B (contra 86% na Fase 2, sem
+  comerciantes), porque o valor passa a depender sobretudo da categoria. O argumento
+  da dissertação contra o limiar fixo continua (ele rotula compras legítimas, em
+  qualquer regime), mas o efeito do *drift* sobre ele aparece no modelo base, sem
+  comerciantes.
 - O mypy 2.x avisa que `python_version = "3.9"` não é mais suportado na configuração;
   a checagem passa nas versões 3.9 a 3.12 do CI.
-- Remoção do motor legacy no fim do mestrado (seção 5.2).
 
 ## Fechamento do [SIM]
 
 ### Resumo do SynCCFD v0.2
 O SynCCFD v0.2 é um simulador de transações de cartão de crédito com fraudes
-rotuladas, sobre a geografia dos municípios brasileiros. Ele parte do simulador da
-v0.1 (artigo do SBSeg 2024), que continua disponível e reproduzível bit a bit, e
-acrescenta um motor vetorizado com fluxos aleatórios locais e quatro componentes
-opcionais: *concept drift* de clientes (súbito, gradual, incremental e recorrente),
+rotuladas, sobre a geografia dos municípios brasileiros. Ele parte do modelo do
+simulador da v0.1 (artigo do SBSeg 2024; a v0.1 continua disponível com
+`pip install synccfd==0.1.0`), reescrito num motor vetorizado com fluxos aleatórios
+locais, e acrescenta quatro componentes, todos ligados por padrão e cada um opcional: *concept drift* de clientes (súbito, gradual, incremental e recorrente),
 com sazonalidade de calendário e *drift* global; fraudes injetadas por fraudadores
 como transações novas, em cinco cenários (valor anômalo, terminal comprometido,
 número do cartão roubado, cartão físico roubado e *card testing*), com campanhas e
@@ -2051,16 +2130,24 @@ from synccfd import DatasetGenerator
 from synccfd.simulator import presets
 
 generator = DatasetGenerator(**presets.realistic())  # synccfd 0.2.0
+# o mesmo que DatasetGenerator(), os padrões da 0.2.0
 ```
 
-`presets.realistic()`: motor v2, `MerchantConfig()`, `DriftConfig()`,
+`presets.realistic()`: `MerchantConfig()`, `DriftConfig()`,
 `SeasonalityConfig()`, `FraudConfig.realistic()`; 10 000 clientes, 20 000 terminais,
 180 dias a partir de 2023-01-01, `random_state=42`. A configuração completa está em
 `docs/figures/dataset_stats.json` (campo `config`), no mesmo formato do
 `config.json` gravado por `save()`.
 
+Ablação (`presets.ablation(step)`, mesmo tamanho e mesma semente; todas as etapas
+com fraudes injetadas e frações calibradas): `base` (clientes estacionários, cenários
+1 a 4 com taxas constantes), `drift` (+ *drift* e sazonalidade), `frauds` (cinco
+cenários e *drift* dos fraudadores) e `merchants` (+ comerciantes, o dataset acima).
+Taxas de fraude, média de 3 sementes: 0,347%, 0,343%, 0,352% e 0,350%.
+
 ### Estatísticas
-Gerado por `scripts/make_figures.py` (`docs/figures/dataset_stats.json`).
+Gerado por `scripts/make_figures.py` (`docs/figures/dataset_stats.json`), depois da
+remoção do motor legacy; os números são idênticos aos de antes da remoção.
 
 | medida | valor |
 |---|---|
@@ -2069,7 +2156,7 @@ Gerado por `scripts/make_figures.py` (`docs/figures/dataset_stats.json`).
 | transações | 3 735 430 (3 722 147 legítimas e 13 283 fraudes) |
 | taxa de fraude | 0,356% |
 | fração CP | 43,0% |
-| clientes com alguma fraude | 1 920 (19,2%) |
+| clientes com alguma fraude | 1 920 (19,2%; escolha deliberada, para ter exemplos suficientes de cada cenário; ver Fase 5) |
 
 Fraudes por cenário:
 
@@ -2109,7 +2196,7 @@ detalhadas estão no "Para o texto" de cada fase; as da Fase 5, na própria fase
 **4.2 Arquitetura**
 
 1. `docs/figures/arquitetura/arquitetura_modulos.pdf` — módulos do pacote.
-2. `docs/figures/arquitetura/fluxo_geracao.pdf` — fluxo de geração do motor v2.
+2. `docs/figures/arquitetura/fluxo_geracao.pdf` — fluxo de geração do simulador.
 
 **4.3 Modelo de simulação**
 
@@ -2139,8 +2226,9 @@ detalhadas estão no "Para o texto" de cada fase; as da Fase 5, na própria fase
 12. `docs/figures/fase3/fraudes_campanha_card_testing.pdf` — uma campanha de *card
     testing* seguida do cenário 3.
 13. `docs/figures/fase3/fraudes_valor_por_cenario.pdf` — valor por cenário.
-14. `docs/figures/fase3/fraudes_cenario1_regime_b.pdf` — o cenário 1 injetado não
-    rotula mais as compras do regime B.
+14. `docs/figures/fase3/fraudes_cenario1_regime_b.pdf` — regra de rótulo por limiar
+    fixo (R$ 220, aplicada aos dados) × fraude injetada do cenário 1: de que regime
+    vêm os rótulos (legenda nova na Fase 5).
 15. `docs/figures/fase3/fraudes_categoria_por_cenario.pdf` — categorias de cada
     cenário.
 16. `docs/figures/fase3/fraudes_cenario3_migracao.pdf` — migração de categoria do

@@ -3,7 +3,6 @@
   "preset": "realistic",
   "config": {
     "synccfd_version": "0.2.0",
-    "engine": "v2",
     "n_customers": 10000,
     "n_terminals": 20000,
     "nb_days": 180,
@@ -21,8 +20,6 @@
         5
       ],
       "rate_mode": "proportional",
-      "mechanism": "inject",
-      "s1_amount_threshold": 220.0,
       "s2_terminals_per_day": 2,
       "s2_terminal_fraction_per_day": 0.0001,
       "s2_duration_days": 28,
@@ -32,9 +29,6 @@
       "s4_customer_fraction_per_day": 0.0003,
       "s3_duration_days": 14,
       "s4_duration_days": 5,
-      "s3_tamper_fraction": 0.3333333333333333,
-      "amount_multiplier": 5.0,
-      "s4_cnp_prob": 0.5,
       "s1_customers_per_day": 3,
       "s1_customer_fraction_per_day": 0.0003,
       "s5_customers_per_day": 2,

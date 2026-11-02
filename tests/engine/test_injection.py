@@ -1,10 +1,10 @@
-"""Fraud injection (v2 engine, ``FraudConfig(mechanism="inject")``)."""
+"""Fraud injection: the five scenarios of ``FraudConfig``."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from synccfd import DatasetGenerator, FraudSimulator
+from synccfd import DatasetGenerator
 from synccfd.simulator.config import DriftConfig, FraudConfig, IntensitySchedule
 from synccfd.simulator.engine.drift import CustomerDrift, regime_weight
 from synccfd.simulator.ground_truth import compromise_table
@@ -16,6 +16,10 @@ PARAMS = {
     "nb_days": 90,
     "start_date": "2023-01-01",
     "random_state": 42,
+    # The base model: the other components are tested in their own modules
+    "drift": None,
+    "seasonality": None,
+    "merchants": None,
 }
 TX_COLUMNS = [
     "TX_DATETIME",
@@ -49,7 +53,7 @@ def _generate(**kwargs):
 
 @pytest.fixture(scope="module")
 def clean():
-    return _generate(engine="v2", fraud=FraudConfig(scenarios=()))
+    return _generate(fraud=None)
 
 
 @pytest.fixture(scope="module")
@@ -67,16 +71,14 @@ def _frauds(transactions, scenario):
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"mechanism": "replace"},
-        {"scenarios": (1, 5)},  # scenario 5 needs injection
-        {"intensity_schedule": {2: IntensitySchedule()}},  # needs injection
-        {"mechanism": "inject", "intensity_schedule": {6: IntensitySchedule()}},
-        {"mechanism": "inject", "intensity_schedule": {2: 0.5}},
-        {"mechanism": "inject", "s1_quantile": 1.5},
-        {"mechanism": "inject", "s4_max_txs": 0},
-        {"mechanism": "inject", "s3_burst_size_range": (5, 2)},
-        {"mechanism": "inject", "s3_mean_bursts": 0.5},
-        {"mechanism": "inject", "s4_spending_limit": 0.0},
+        {"intensity_schedule": {6: IntensitySchedule()}},
+        {"intensity_schedule": {2: 0.5}},
+        {"s1_quantile": 1.5},
+        {"s4_max_txs": 0},
+        {"s3_burst_size_range": (5, 2)},
+        {"s3_mean_bursts": 0.5},
+        {"s4_spending_limit": 0.0},
+        {"s2_clone_prob": 0.9, "s2_leak_prob": 0.2},
     ],
 )
 def test_invalid_config_raises(kwargs):
@@ -97,31 +99,14 @@ def test_invalid_schedule_raises(kwargs):
         IntensitySchedule(**kwargs)
 
 
-def test_defaults_stay_tamper():
-    config = FraudConfig()
-    assert config.mechanism == "tamper"
-    assert config.scenarios == (1, 2, 3, 4)
-    assert dict(config.intensity_schedule) == {}
-
-
 def test_realistic_config():
     config = FraudConfig.realistic(s2_leak_prob=0.1)
-    assert config.mechanism == "inject"
     assert config.rate_mode == "proportional"
     assert config.scenarios == (1, 2, 3, 4, 5)
     assert config.s2_leak_prob == 0.1
     assert set(config.intensity_schedule) == {2, 5}
     with pytest.raises(TypeError):
         config.intensity_schedule[3] = IntensitySchedule()  # type: ignore[index]
-
-
-def test_injection_requires_v2():
-    config = FraudConfig(mechanism="inject")
-    assert DatasetGenerator(n_customers=5, n_terminals=5, fraud=config).engine == "v2"
-    with pytest.raises(ValueError):
-        DatasetGenerator(n_customers=5, n_terminals=5, fraud=config, engine="legacy")
-    with pytest.raises(ValueError):
-        FraudSimulator(config=config)
 
 
 # --- intensity schedule ------------------------------------------------------------
@@ -142,14 +127,13 @@ def test_step_schedule_changes_daily_rate_on_the_planned_day():
     # Step at 40% of 100 days: days 0-39 before, days 40-99 after
     step = IntensitySchedule("step", start=0.4, base=0.0, level=1.0)
     absolute = FraudConfig(
-        mechanism="inject", s3_customers_per_day=4, intensity_schedule={3: step}
+        rate_mode="absolute", s3_customers_per_day=4, intensity_schedule={3: step}
     )
     counts = absolute.daily_counts(3, 10_000, 100, np.random.default_rng(0))
     assert (counts[:40] == 0).all() and (counts[40:] == 4).all()
 
     halving = IntensitySchedule("step", start=0.4, base=1.0, level=0.5)
     proportional = FraudConfig(
-        mechanism="inject",
         rate_mode="proportional",
         s2_terminal_fraction_per_day=0.01,
         intensity_schedule={2: halving},

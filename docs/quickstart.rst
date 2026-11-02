@@ -6,35 +6,23 @@ This guide will help you get started with SynCCFD quickly.
 Generating Synthetic Data
 -------------------------
 
-Generate synthetic credit card transaction data:
-
-.. code-block:: python
-
-    from synccfd.simulator.generator import DatasetGenerator
-
-    # Initialize generator
-    generator = DatasetGenerator(
-        n_customers=10000,  # Number of customers
-        n_terminals=1000000  # Number of terminals
-    )
-
-    # Generate synthetic data
-    customer_profiles, terminal_profiles, transactions = generator.generate()
-
-The returned ``transactions`` frame includes a ``TX_FRAUD`` label marking the
-simulated fraudulent transactions, ready for downstream analysis.
-
-With every v0.2 component (merchants, customer drift, seasonality and fraud
-injection), use a preset (:doc:`presets`):
+The defaults are the complete simulator: merchants and categories, customer concept
+drift, seasonality and five fraud scenarios injected by fraudsters (the same as
+``presets.realistic()``, :doc:`presets`).
 
 .. code-block:: python
 
     from synccfd import DatasetGenerator
-    from synccfd.simulator import presets
 
-    generator = DatasetGenerator(**presets.realistic(n_customers=1_000, nb_days=90))
+    generator = DatasetGenerator(n_customers=1_000, n_terminals=2_000, nb_days=90)
+    customer_profiles, terminal_profiles, transactions = generator.generate()
+
+    # Everything in one object, with the effective configuration
     result = generator.generate_all()
     generator.save(output_dir="data", save_format="parquet")  # with config.json
+
+The ``transactions`` frame has the ``TX_FRAUD`` label. ``None`` switches a component
+off, for example ``DatasetGenerator(drift=None, merchants=None)``.
 
 The columns are described in :doc:`output`. Columns starting with ``GT_`` are ground
 truth: never use them as model inputs.

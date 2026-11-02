@@ -138,7 +138,7 @@ def generation_flow():
         (
             2.0,
             "Fraudes e gabarito",
-            "fraud.py (tamper) · injection.py (inject)",
+            "fraud.py · injection.py: cinco cenários",
             CORE,
             False,
         ),
@@ -267,21 +267,20 @@ def module_architecture():
         va="center",
     )
 
+    # Entry point, with the configurations and the presets
     _box(ax, 5.5, 5.85, 4.0, 0.75, "DatasetGenerator", "generate · generate_all · save")
-    _box(
-        ax, 1.75, 5.85, 2.6, 0.75, "presets.py", "legacy · realistic · ablation", CONFIG
-    )
+    _box(ax, 1.75, 5.85, 2.6, 0.75, "presets.py", "realistic · ablation", CONFIG)
     _box(
         ax, 9.25, 5.85, 2.6, 0.75, "config.py", "FraudConfig, DriftConfig, ...", CONFIG
     )
     _arrow(ax, (3.05, 5.85), (3.5, 5.85), color=CONFIG)
     _arrow(ax, (7.95, 5.85), (7.5, 5.85), color=CONFIG)
 
-    # v2 engine
+    # Simulation engine
     ax.add_patch(
         FancyBboxPatch(
             (0.45, 1.45),
-            6.85,
+            8.3,
             3.55,
             boxstyle="round,pad=0,rounding_size=0.1",
             facecolor="none",
@@ -292,83 +291,63 @@ def module_architecture():
     ax.text(
         0.65,
         4.78,
-        "simulator/engine/ (motor v2): simulate()",
+        "simulator/engine/: simulate()",
         fontsize=9.5,
         color=CORE,
         weight="bold",
         va="center",
     )
-    v2 = [
-        (1.75, 4.1, "rng.py", "fluxos nomeados", CORE, False),
-        (4.0, 4.1, "customers.py", "perfis", CORE, False),
-        (6.2, 4.1, "terminals.py", "perfis", CORE, False),
-        (1.75, 3.05, "drift.py", "regime B", OPTIONAL, True),
-        (4.0, 3.05, "daily_factors.py", "sazonalidade", OPTIONAL, True),
-        (6.2, 3.05, "merchants.py", "categorias", OPTIONAL, True),
-        (1.75, 2.0, "transactions.py", "legítimas", CORE, False),
-        (4.0, 2.0, "fraud.py", "tamper", CORE, False),
-        (6.2, 2.0, "injection.py", "inject", OPTIONAL, True),
+    engine = [
+        (1.9, 4.1, "rng.py", "fluxos nomeados", CORE, False),
+        (4.6, 4.1, "customers.py", "perfis", CORE, False),
+        (7.3, 4.1, "terminals.py", "perfis", CORE, False),
+        (1.9, 3.05, "drift.py", "regime B", OPTIONAL, True),
+        (4.6, 3.05, "daily_factors.py", "sazonalidade", OPTIONAL, True),
+        (7.3, 3.05, "merchants.py", "categorias", OPTIONAL, True),
+        (1.9, 2.0, "transactions.py", "legítimas", CORE, False),
+        (4.6, 2.0, "fraud.py", "fraudes injetadas", CORE, False),
+        (7.3, 2.0, "injection.py", "cinco cenários", CORE, False),
     ]
-    for bx, by, title, detail, color, dashed in v2:
-        _box(ax, bx, by, 1.95, 0.7, title, detail, color, dashed)
-
-    # legacy engine
-    ax.add_patch(
-        FancyBboxPatch(
-            (7.85, 2.55),
-            2.75,
-            2.45,
-            boxstyle="round,pad=0,rounding_size=0.1",
-            facecolor="none",
-            edgecolor=MUTED,
-            lw=1.2,
-        )
-    )
+    for bx, by, title, detail, color, dashed in engine:
+        _box(ax, bx, by, 2.3, 0.7, title, detail, color, dashed)
+    _arrow(ax, (4.6, 5.47), (4.6, 5.02))
     ax.text(
-        8.0,
-        4.78,
-        "simulator/legacy/ (v0.1)",
-        fontsize=9.5,
+        4.72,
+        5.2,
+        "generate()",
+        fontsize=8.5,
         color=SECONDARY,
-        weight="bold",
+        family="monospace",
         va="center",
-    )
-    _box(ax, 9.22, 4.05, 2.3, 0.62, "generator.py", "", CORE)
-    _box(ax, 9.22, 3.15, 2.3, 0.62, "fraud.py", "", CORE)
-
-    _arrow(ax, (4.3, 5.47), (3.9, 5.02))
-    ax.text(2.55, 5.2, 'engine="v2"', fontsize=8.5, color=SECONDARY, family="monospace")
-    _arrow(ax, (7.0, 5.47), (8.9, 5.02))
-    ax.text(
-        8.0, 5.3, 'engine="legacy"', fontsize=8.5, color=SECONDARY, family="monospace"
     )
 
     # Shared modules and saving
     _box(
         ax,
-        2.2,
+        2.6,
         0.75,
-        3.2,
+        3.6,
         0.7,
         "simulator/location/",
-        "cidades e sorteio de pontos (os dois motores)",
+        "cidades e sorteio de pontos",
         CORE,
     )
     _box(
         ax,
-        5.6,
+        6.5,
         0.75,
-        2.9,
+        3.0,
         0.7,
         "simulator/ground_truth.py",
         "compromise_table (análise)",
         CORE,
     )
-    _box(ax, 9.25, 0.75, 2.6, 0.7, "utils/data.py", "gravar e ler", OUTPUT)
-    _arrow(ax, (2.2, 1.45), (2.2, 1.1))
-    ax.plot([7.575, 7.575], [5.47, 0.75], color=SECONDARY, lw=1.1)
-    _arrow(ax, (7.575, 0.75), (7.95, 0.75))
-    ax.text(7.65, 1.25, "save()", fontsize=8.5, color=SECONDARY, family="monospace")
+    _box(ax, 9.75, 2.6, 1.7, 0.7, "utils/data.py", "gravar e ler", OUTPUT)
+    _arrow(ax, (2.6, 1.45), (2.6, 1.1))
+    # save(): from the generator, down the right side, to utils/data.py
+    ax.plot([7.0, 7.0, 9.75], [5.47, 5.2, 5.2], color=SECONDARY, lw=1.1)
+    _arrow(ax, (9.75, 5.2), (9.75, 2.95))
+    ax.text(9.82, 4.1, "save()", fontsize=8.5, color=SECONDARY, family="monospace")
 
     for i, (color, label, dashed) in enumerate(
         [

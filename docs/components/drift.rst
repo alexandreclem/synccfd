@@ -2,7 +2,7 @@ Customer drift and seasonality
 ==============================
 
 ``DriftConfig`` (customer and population drift) and ``SeasonalityConfig`` (calendar
-patterns), v2 engine. See ``examples/drift.ipynb``.
+patterns). See ``examples/drift.ipynb``.
 
 .. code-block:: python
 
