@@ -303,6 +303,10 @@ merchant_profiles = generator.merchant_profiles
   digital services and ride-hailing (CNP only). Each has a median amount and a
   spread, a weight, a 24-hour profile, opening hours (CP purchases only happen
   then), a weekend factor and a skimming risk. All are configurable.
+- Mixed categories (CP and CNP) have an online fraction (supermarket 0.10, pharmacy
+  0.15, clothing 0.30, electronics 0.50), combined with the customer's `cnp_prob` on
+  the logit scale, so that the mean stays at the category's fraction. Customers with
+  no merchant of the category in reach always buy it online.
 - Each customer has a preference over the categories, `Dirichlet(10 × weights)`, a
   spending factor, `LogNormal(0, 0.5)`, and favourite merchants per category (60% of
   the purchases in a category go to 2 favourites). A purchase costs

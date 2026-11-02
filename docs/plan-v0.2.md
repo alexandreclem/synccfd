@@ -396,18 +396,18 @@ cenários de fraude com comerciantes (Fase 3).
   manter o esquema, recebem um `TERMINAL_ID` virtual com localização = sede (cidade sorteada).
 - **Categoria** (inspirada em MCC), definida em `MerchantConfig.categories`:
 
-| categoria | canal | valor (lognormal, mediana R$) | σ log | perfil horário | peso |
-|---|---|---|---|---|---|
-| supermercado | CP+CNP | 120 | 0,7 | 8–21h, pico 18h | 0,20 |
-| restaurante_bar | CP | 60 | 0,6 | picos 12h e 20h, até 0h | 0,15 |
-| posto_combustivel | CP | 150 | 0,4 | 6–23h, plano | 0,10 |
-| farmacia | CP+CNP | 70 | 0,6 | 8–22h | 0,08 |
-| vestuario | CP+CNP | 180 | 0,7 | 10–22h, pico 16h | 0,08 |
-| eletronicos | CP+CNP | 900 | 0,8 | 10–22h | 0,04 |
-| viagem_turismo | CNP | 1200 | 0,7 | 8–23h | 0,03 |
-| ecommerce_marketplace | CNP | 150 | 0,9 | bimodal 10h/21h | 0,15 |
-| servicos_digitais | CNP | 35 | 0,5 | 24h, pico noite | 0,10 |
-| transporte_app | CNP | 25 | 0,5 | picos 8h e 18h | 0,07 |
+| categoria | canal | valor (lognormal, mediana R$) | σ log | perfil horário | peso | fração online |
+|---|---|---|---|---|---|---|
+| supermercado | CP+CNP | 120 | 0,7 | 8–21h, pico 18h | 0,20 | 0,10 |
+| restaurante_bar | CP | 60 | 0,6 | picos 12h e 20h, até 0h | 0,15 | — |
+| posto_combustivel | CP | 150 | 0,4 | 6–23h, plano | 0,10 | — |
+| farmacia | CP+CNP | 70 | 0,6 | 8–22h | 0,08 | 0,15 |
+| vestuario | CP+CNP | 180 | 0,7 | 10–22h, pico 16h | 0,08 | 0,30 |
+| eletronicos | CP+CNP | 900 | 0,8 | 10–22h | 0,04 | 0,50 |
+| viagem_turismo | CNP | 1200 | 0,7 | 8–23h | 0,03 | — |
+| ecommerce_marketplace | CNP | 150 | 0,9 | bimodal 10h/21h | 0,15 | — |
+| servicos_digitais | CNP | 35 | 0,5 | 24h, pico noite | 0,10 | — |
+| transporte_app | CNP | 25 | 0,5 | picos 8h e 18h | 0,07 | — |
 
   Os valores são empíricos, mesmo critério do artigo. Ficam em
   `presets.DEFAULT_CATEGORIES` e podem ser substituídos pelo usuário.
@@ -425,8 +425,10 @@ cenários de fraude com comerciantes (Fase 3).
 - **Escolha da transação**:
   1. sorteia a categoria pela preferência do cliente, renormalizada pelos canais possíveis;
   2. define o tipo: CP se a categoria aceita CP e há terminal disponível dessa categoria no
-     raio do cliente; CNP se a categoria é só CNP; em categorias mistas, usa `cnp_prob` do
-     cliente;
+     raio do cliente; CNP se a categoria é só CNP; em categorias mistas, combina a fração
+     online da categoria (`online_fraction`) com o `cnp_prob` do cliente na escala logit,
+     $p = \sigma(c_k + \mathrm{logit}(p_{\text{cliente}}))$, com $c_k$ tal que a média de
+     $p$ seja a fração online (decidido na revisão da Fase 4);
   3. escolhe o comerciante: CP, entre os disponíveis no raio, uniforme (ou com fidelidade,
      ver abaixo); CNP, entre os comerciantes CNP da categoria, com popularidade Zipf
      (poucos marketplaces grandes);
@@ -456,7 +458,7 @@ cenários de fraude com comerciantes (Fase 3).
       drift súbito têm as compras do regime B mais perto da preferência B do que da A.*
 - [x] Notebooks das Fases 2 e 3 atualizados para mostrar também a visão por categoria.
 - [x] Teste: em CP, todo horário está dentro do horário de funcionamento da categoria.
-      *Vale também para as fraudes injetadas (0 de 1,2 milhão de compras CP fora do
+      *Vale também para as fraudes injetadas (0 de 1,5 milhão de compras CP fora do
       horário, em 10 000 clientes × 180 dias).*
 - [x] Teste: categorias só CNP nunca geram `TX_TYPE == "CP"`.
 - [x] Teste: a mediana do valor por categoria fica a menos de 15% do configurado
@@ -1553,8 +1555,9 @@ Cada cliente ganha uma preferência por categoria, $\mathrm{Dirichlet}(10 \cdot
 \text{pesos})$, um fator de gasto, $\mathrm{LogNormal}(0; 0{,}5)$, e comerciantes
 favoritos. Uma compra sorteia, nesta ordem: a categoria, pela preferência (vezes o
 fator de fim de semana, entre as categorias em que o cliente consegue comprar); o tipo
-(as categorias só CP ou só CNP o definem; nas mistas, usa-se o `cnp_prob` do cliente,
-e a compra é CNP se não houver terminal da categoria ao alcance); o comerciante (com
+(as categorias só CP ou só CNP o definem; nas mistas, a fração online da categoria
+é combinada com a propensão `cnp_prob` do cliente, e a compra é CNP se não houver
+terminal da categoria ao alcance); o comerciante (com
 probabilidade 0,6, um dos dois favoritos do cliente na categoria); a hora, pelo perfil
 da categoria; e o valor, $\text{mediana} \times \text{fator do cliente} \times
 \mathrm{LogNormal}(0, \sigma)$. A fidelidade cria padrões sequenciais (o cliente volta
@@ -1572,6 +1575,33 @@ digitais. O cenário 2 compromete o **comerciante inteiro** (todos os seus termi
 escolhido com probabilidade proporcional ao risco da categoria (posto 3, restaurante
 2, demais 1).
 
+**Fração online das categorias mistas (revisão).** Na primeira versão, as categorias
+mistas usavam diretamente o `cnp_prob` do cliente, $\mathcal{U}(0, 1)$: só 37,6% das
+compras de supermercado eram presenciais, e a fração CP do conjunto caía de 46,4% para
+33,5%. Agora, cada categoria mista tem uma fração online base $b_k$ (supermercado 0,10;
+farmácia 0,15; vestuário 0,30; eletrônicos 0,50), combinada com a propensão do cliente
+na escala logit, $p = \sigma(c_k + \mathrm{logit}(\texttt{cnp\_prob}))$. O
+deslocamento $c_k$ é calculado para que a média de $p$, com `cnp_prob` uniforme, seja
+exatamente $b_k$; um cliente com propensão alta continua comprando mais online que os
+outros, em todas as categorias. Entre os clientes com um comerciante da categoria ao
+alcance, a fração CNP medida é 9,9% no supermercado, 15,4% na farmácia, 30,6% no
+vestuário e 50,0% nos eletrônicos. Na categoria inteira ela fica acima da base,
+porque quem não tem comerciante da categoria por perto compra sempre online. A fração
+CP do conjunto passou a 43,1% (46,4% sem comerciantes).
+
+**Por que restaurante e posto ficam abaixo do peso.** Uma categoria só presencial
+exige um comerciante dela ao alcance (10 km); se não houver, a preferência do cliente
+por ela é redistribuída entre as outras. Os comerciantes físicos recebem a categoria
+pelo peso entre as categorias com CP (restaurante 23%, posto 16% das lojas), e um
+cliente tem em mediana 14 terminais ao alcance, ou seja, cerca de 10 comerciantes;
+assim, falta restaurante para 26,1% dos clientes e posto para 32,3% (20,5% e 27,1%
+entre os que têm algum terminal ao alcance; 7,2% não têm nenhum). A participação
+esperada é, aproximadamente, o peso vezes a fração de clientes que alcançam a
+categoria: 15% × 0,74 = 11,1% para restaurante e 10% × 0,68 = 6,8% para posto, perto
+dos 12,0% e 6,7% medidos (no restaurante, o fator de fim de semana de 1,4 soma um
+pouco). As categorias mistas não perdem participação, porque a compra vira CNP, e as
+só CNP ganham com a redistribuição.
+
 Como os demais, o componente é opcional: sem `merchants`, o motor v2 gera exatamente os
 mesmos dados da Fase 3 (verificado contra o master). As colunas novas
 (`MERCHANT_ID`, `MERCHANT_CATEGORY`) são observáveis, como o MCC numa transação real,
@@ -1585,6 +1615,7 @@ e por isso não levam o prefixo `GT_`.
 | comerciantes online também nas categorias mistas (supermercado, farmácia, vestuário e eletrônicos online) | só nas categorias só CNP | uma compra CNP de uma categoria mista precisa de um comerciante da mesma categoria |
 | em CP, o terminal é sorteado entre os terminais da categoria ao alcance (com fidelidade) | sortear primeiro o comerciante e depois o terminal | mais simples e quase equivalente; um comerciante com mais terminais por perto recebe mais compras, o que é plausível |
 | fator de fim de semana aplicado à escolha da categoria, e não ao número de compras do dia | multiplicar a taxa diária | o volume diário já tem a sazonalidade (Fase 2); o fim de semana por categoria muda o *mix* de compras |
+| categorias mistas com fração online própria, combinada com o `cnp_prob` do cliente na escala logit e calibrada para que a média seja a base (decidido na revisão) | usar só o `cnp_prob` do cliente, como no plano original; ou só a fração da categoria | com o `cnp_prob` uniforme, 62% das compras de supermercado eram online e a fração CP do conjunto cairia de 46% para 34%; a combinação mantém a média da categoria e a heterogeneidade dos clientes |
 | preferência zero para categorias em que o cliente não consegue comprar (só CP sem terminal ao alcance), com a preferência redistribuída | manter a preferência e transformar a compra em CNP | uma compra de posto ou restaurante não pode ser online |
 | `mean_amount` e `std_amount` recalculados a partir das transações geradas | manter os valores sorteados da v0.1 | com comerciantes, o valor vem da categoria; recalcular mantém as colunas com um significado verdadeiro, como pede o plano |
 | com comerciantes, o gabarito do *drift* troca `GT_B_mean_amount`/`GT_B_std_amount` por `GT_B_spending_factor` e ganha `GT_B_pref_<categoria>` | manter as colunas antigas | as antigas descreveriam um modelo de valor que não é mais usado |
@@ -1609,20 +1640,21 @@ e por isso não levam o prefixo `GT_`.
 | `n_favorites` | 2 | favoritos por cliente e categoria |
 
 `DEFAULT_CATEGORIES` (a tabela da seção 4.1, com horário de funcionamento, fator de fim
-de semana e risco de *skimming*):
+de semana, risco de *skimming* e, nas categorias mistas, fração online,
+`online_fraction`, padrão 0,5):
 
-| categoria | canal | mediana (R$) | σ log | peso | horário CP | fim de semana | risco |
-|---|---|---|---|---|---|---|---|
-| supermercado | CP+CNP | 120 | 0,7 | 0,20 | 8–21 h | 1,2 | 1 |
-| restaurante_bar | CP | 60 | 0,6 | 0,15 | 11–24 h | 1,4 | 2 |
-| posto_combustivel | CP | 150 | 0,4 | 0,10 | 6–23 h | 1,0 | 3 |
-| farmacia | CP+CNP | 70 | 0,6 | 0,08 | 8–22 h | 1,0 | 1 |
-| vestuario | CP+CNP | 180 | 0,7 | 0,08 | 10–22 h | 1,3 | 1 |
-| eletronicos | CP+CNP | 900 | 0,8 | 0,04 | 10–22 h | 1,1 | 1 |
-| viagem_turismo | CNP | 1200 | 0,7 | 0,03 | — | 1,0 | — |
-| ecommerce_marketplace | CNP | 150 | 0,9 | 0,15 | — | 1,1 | — |
-| servicos_digitais | CNP | 35 | 0,5 | 0,10 | — | 1,0 | — |
-| transporte_app | CNP | 25 | 0,5 | 0,07 | — | 0,7 | — |
+| categoria | canal | mediana (R$) | σ log | peso | horário CP | fim de semana | risco | fração online |
+|---|---|---|---|---|---|---|---|---|
+| supermercado | CP+CNP | 120 | 0,7 | 0,20 | 8–21 h | 1,2 | 1 | 0,10 |
+| restaurante_bar | CP | 60 | 0,6 | 0,15 | 11–24 h | 1,4 | 2 | — |
+| posto_combustivel | CP | 150 | 0,4 | 0,10 | 6–23 h | 1,0 | 3 | — |
+| farmacia | CP+CNP | 70 | 0,6 | 0,08 | 8–22 h | 1,0 | 1 | 0,15 |
+| vestuario | CP+CNP | 180 | 0,7 | 0,08 | 10–22 h | 1,3 | 1 | 0,30 |
+| eletronicos | CP+CNP | 900 | 0,8 | 0,04 | 10–22 h | 1,1 | 1 | 0,50 |
+| viagem_turismo | CNP | 1200 | 0,7 | 0,03 | — | 1,0 | — | — |
+| ecommerce_marketplace | CNP | 150 | 0,9 | 0,15 | — | 1,1 | — | — |
+| servicos_digitais | CNP | 35 | 0,5 | 0,10 | — | 1,0 | — | — |
+| transporte_app | CNP | 25 | 0,5 | 0,07 | — | 0,7 | — | — |
 
 Os perfis horários são somas de "sinos" sobre uma base (`hourly_profile`), com os
 picos da tabela 4.1: supermercado às 18 h (e menor às 11 h), restaurante às 12 h 30 e
@@ -1648,7 +1680,13 @@ em que o cliente compra em $k$ se $k$ tem CNP ou se há terminal da categoria $k
 10 km.
 
 Tipo: CP se $k$ é só CP; CNP se $k$ é só CNP ou se não há terminal de $k$ ao alcance;
-nas mistas, CNP com probabilidade `cnp_prob` do cliente.
+nas mistas, CNP com probabilidade
+$p_{c,k} = \sigma\big(c_k + \mathrm{logit}(q_c)\big)$, em que $q_c$ é o `cnp_prob` do
+cliente e $c_k$ resolve $\mathbb{E}_{q \sim \mathcal{U}(0,1)}[\sigma(c_k +
+\mathrm{logit}(q))] = b_k$, a fração online da categoria. Com $r = e^{c_k}$, essa média
+é $\frac{r}{r-1}\left(1 - \frac{c_k}{r-1}\right)$, crescente em $c_k$, e $c_k$ sai por
+bisseção (supermercado $-3{,}19$; farmácia $-2{,}55$; vestuário $-1{,}26$; eletrônicos
+0). No regime B, $q_c$ é o `cnp_prob` do regime B.
 
 Hora: $h \sim$ perfil de $k$ (em CP, só nas horas $o_k \leq h < f_k$ do horário de
 funcionamento); minuto e segundo uniformes.
@@ -1673,7 +1711,7 @@ cartão.
 |---|---|---|
 | `docs/figures/fase4/comerciantes_valor_por_categoria.pdf` | Valor das compras por categoria (escala log; caixas: quartis; hastes: até 1,5 × IQR, em log). O losango marca a mediana configurada; a cor indica o canal da categoria. | 4.4 Componentes novos — comerciantes |
 | `docs/figures/fase4/comerciantes_hora_categoria.pdf` | Fração das compras de cada categoria em cada hora do dia. O contorno marca o horário de funcionamento, fora do qual não há compras presenciais. | 4.4 Componentes novos — comerciantes |
-| `docs/figures/fase4/comerciantes_participacao.pdf` | Fração das transações em cada categoria, dividida em CP e CNP, e o peso configurado (traço). As categorias só presenciais ficam abaixo do peso, porque nem todo cliente tem um comerciante delas ao alcance. | 4.4 Componentes novos — comerciantes |
+| `docs/figures/fase4/comerciantes_participacao.pdf` | Fração das transações em cada categoria, dividida em CP e CNP, e o peso configurado (traço); nas categorias mistas, o rótulo traz a fração CNP. As categorias só presenciais ficam abaixo do peso, porque nem todo cliente tem um comerciante delas ao alcance; nas mistas, a fração CNP fica acima da fração online base pelo mesmo motivo (sem comerciante por perto, a compra é online). | 4.4 Componentes novos — comerciantes |
 | `docs/figures/fase2/drift_categorias.pdf` | Mudança de preferência por categoria no regime B. À esquerda, as compras de um cliente com *drift* súbito, por categoria, em cada regime; à direita, a distância de variação total entre as preferências de A e B, configurada (gabarito) e observada nas compras. | 4.4 Componentes novos — *concept drift* |
 | `docs/figures/fase3/fraudes_categoria_por_cenario.pdf` | Categoria das transações legítimas e das fraudes de cada cenário (% de cada linha). | 4.4 Componentes novos — fraudes |
 | `docs/figures/fase3/fraudes_cenario3_migracao.pdf` | Categorias do cenário 3 a cada quatro semanas: a partir de 50% do período, os fraudadores trocam eletrônicos por serviços digitais (`FraudConfig.realistic()`). | 4.4 Componentes novos — fraudes (*drift* dos fraudadores) |
@@ -1690,17 +1728,20 @@ notebooks (5 000 clientes, 365 dias, `DriftConfig()`; na Fase 3,
 | comerciantes | 14 165 (14 005 físicos e 160 online); 1,43 terminal por comerciante físico | 10 000 clientes, 20 000 terminais, 180 dias, `random_state=42`, `MerchantConfig()` |
 | mediana do valor por categoria × configurada | diferença máxima de 1,8% (posto: −1,8%) | idem |
 | participação das categorias (observada × peso, %) | supermercado 22,2 × 20; restaurante 12,0 × 15; posto 6,7 × 10; farmácia 8,6 × 8; vestuário 9,0 × 8; eletrônicos 4,4 × 4; viagem 3,1 × 3; marketplace 16,3 × 15; serviços digitais 10,8 × 10; transporte 6,9 × 7 | idem, sem fraude |
-| fração de compras CP nas categorias mistas | supermercado 37,6%; farmácia 30,2%; vestuário 30,5%; eletrônicos 25,1% | idem |
-| fração de compras CP no total | 33,5% com comerciantes; 46,4% sem | idem |
+| fração de compras CNP nas categorias mistas, clientes com comerciante da categoria ao alcance × fração online base | supermercado 9,9% × 10%; farmácia 15,4% × 15%; vestuário 30,6% × 30%; eletrônicos 50,0% × 50% | idem |
+| fração de compras CNP nas categorias mistas, todos os clientes | supermercado 32,4%; farmácia 48,6%; vestuário 57,1%; eletrônicos 74,9% (antes da revisão, só com o `cnp_prob`: 62,4%; 69,8%; 69,5%; 74,9%) | idem |
+| fração de compras CP no total | 43,1% com comerciantes (33,5% antes da revisão); 46,4% sem | idem |
 | clientes sem nenhum terminal ao alcance | 7,2%; mediana de 14 terminais ao alcance | idem |
+| clientes sem comerciante da categoria ao alcance | restaurante 26,1%; posto 32,3%; supermercado 22,2%; farmácia 35,7%; vestuário 34,5%; eletrônicos 47,2% (entre os que têm algum terminal: 20,5%; 27,1%; 16,3%; 30,8%; 29,5%; 43,2%) | idem |
 | compras nos 2 comerciantes preferidos do cliente, por categoria | de 64% (supermercado) a 82% (posto) | 5 000 clientes, 90 dias, `loyalty=0,6`, clientes com pelo menos 10 compras na categoria |
-| compras CP fora do horário de funcionamento | 0 de 1 205 694 (legítimas e fraudes) | 10 000 clientes × 180 dias, `FraudConfig.realistic()` |
-| taxa de fraude com comerciantes | 0,362% (cenário 1: 0,015%; 2: 0,030%; 3: 0,198%; 4: 0,073%; 5: 0,047%) | idem |
-| categorias das fraudes | cenário 1: eletrônicos 56%, viagem 44%; 2: supermercado 50%, farmácia 25%, posto 22%, eletrônicos 2%; 3: marketplace 68%, serviços digitais 24%, eletrônicos 9%; 4: supermercado 54%, farmácia 25%, posto 16%, eletrônicos 6%; 5: serviços digitais 100% | idem |
+| compras CP fora do horário de funcionamento | 0 de 1 549 437 (legítimas e fraudes) | 10 000 clientes × 180 dias, `FraudConfig.realistic()` |
+| taxa de fraude com comerciantes | 0,358% (cenário 1: 0,015%; 2: 0,025%; 3: 0,199%; 4: 0,073%; 5: 0,047%) | idem |
+| categorias das fraudes | cenário 1: eletrônicos 56%, viagem 44%; 2: supermercado 53%, posto 23%, farmácia 19%, eletrônicos 5%; 3: marketplace 67%, serviços digitais 24%, eletrônicos 9%; 4: supermercado 54%, farmácia 25%, posto 16%, eletrônicos 6%; 5: serviços digitais 100% | idem |
+| fração CP das fraudes | cenário 1: 14,8%; 2: 100%; 3 e 5: 0%; 4: 70% | idem |
 | cenário 3: valor ÷ mediana da categoria | mediana de 2,0 | idem |
-| comerciantes comprometidos (cenário 2) por categoria × fração dos comerciantes físicos (%) | posto 26,2 × 15,6; restaurante 32,1 × 23,4; supermercado 20,8 × 30,3; farmácia 11,3 × 12,3; vestuário 6,5 × 12,4; eletrônicos 3,0 × 6,1 (168 comerciantes) | idem |
+| comerciantes comprometidos (cenário 2) por categoria × fração dos comerciantes físicos (%) | posto 28,7 × 15,6; restaurante 29,3 × 23,4; supermercado 19,8 × 30,3; vestuário 10,8 × 12,4; farmácia 7,2 × 12,3; eletrônicos 4,2 × 6,1 (167 comerciantes) | idem |
 | mudança de preferência no regime B (distância de variação total média) | 0,25 no gabarito; 0,28 nas compras observadas (1 496 clientes com compras nos dois regimes) | 5 000 clientes, 365 dias, `random_state=42`, `DriftConfig()`, `MerchantConfig()` |
-| tempo de geração no v2 (melhor de 2) | sem comerciantes: 12,2 s; com comerciantes: 26,9 s; com comerciantes e `FraudConfig.realistic()`: 46,9 s | 10 000 clientes, 20 000 terminais, 180 dias |
+| tempo de geração no v2 (melhor de 2) | sem comerciantes: 12,2 s; com comerciantes: 26,9 s; com comerciantes e `FraudConfig.realistic()`: 46,9 s. Depois da revisão, numa rodada com a máquina mais carregada: 21,2 s; 37,9 s; 42,6 s. A razão, de 1,8 a 2,2, é a medida estável | 10 000 clientes, 20 000 terminais, 180 dias |
 | sem comerciantes × master (Fase 3) | dados idênticos (perfis e transações), com `FraudConfig.realistic()`, `DriftConfig()` e `SeasonalityConfig()`, e com `FraudConfig()` | 800 clientes, 60 dias, `random_state=7` |
 
 ### Testes que comprovam o comportamento
@@ -1714,6 +1755,11 @@ notebooks (5 000 clientes, 365 dias, `DriftConfig()`; na Fase 3,
     online); comerciante e categoria da transação coerentes com o terminal;
   - preferências somam 1 e têm média igual aos pesos; compras CP só em terminais ao
     alcance do cliente;
+  - `test_cnp_logit_offset_keeps_the_mean`: a média de $\sigma(c_k + \mathrm{logit}(q))$,
+    $q$ uniforme, é a fração online (erro < $10^{-4}$), e $c_k = 0$ só para 0,5;
+    `test_online_fraction_of_mixed_categories`: entre os clientes com comerciante da
+    categoria ao alcance, a fração CNP fica a menos de 5 pontos da base, na ordem
+    supermercado < farmácia < vestuário < eletrônicos;
   - `test_cp_hours_are_within_opening_hours`, `test_cnp_only_categories_are_never_cp`
     (e o inverso para as só CP), `test_median_amount_per_category` (3 000 clientes ×
     60 dias, tolerância de 15%);
@@ -1747,22 +1793,18 @@ notebooks (5 000 clientes, 365 dias, `DriftConfig()`; na Fase 3,
   `GT_B_pref_<categoria>` no lugar de `GT_B_mean_amount` e `GT_B_std_amount`.
 - O cenário 4 e o cartão clonado usam valores típicos da categoria, e não o fator
   `s4_amount_factor` sobre o histórico do cliente.
+- Nas categorias mistas, o tipo combina a fração online da categoria com o `cnp_prob`
+  do cliente, em vez de usar só o `cnp_prob` (decidido na revisão; a seção 4.1 foi
+  atualizada).
 - O teste da migração do cenário 3 e o do fim de semana usam limiares de efeito (por
   exemplo, restaurante pelo menos 10% mais frequente no fim de semana), porque os
   outros fatores de fim de semana também mudam a mistura.
 
 ### Pendências / ideias
-- **Fração CNP das categorias mistas (decisão para revisar).** Seguindo o plano, as
-  categorias mistas usam o `cnp_prob` do cliente, que é $\mathcal{U}(0, 1)$ na v0.1.
-  Com isso, só 37,6% das compras de supermercado são presenciais, e a fração CP total
-  cai de 46,4% para 33,5%. Uma alternativa é dar a cada categoria mista uma fração
-  online própria (por exemplo, supermercado 10%, eletrônicos 50%), combinada com a
-  propensão do cliente.
-- As categorias só CP ficam abaixo do peso (restaurante 12,0% × 15%; posto 6,7% × 10%)
-  porque 7,2% dos clientes não têm terminal ao alcance e muitos outros não têm
-  comerciante dessas categorias perto. Mais terminais por cliente, ou comerciantes
-  físicos sorteados para garantir as categorias básicas em toda cidade, reduziriam a
-  diferença.
+- As categorias só CP ficam abaixo do peso (restaurante 12,0% × 15%; posto 6,7% × 10%),
+  pelo alcance (ver "O que foi implementado"). Se for preciso aproximar do peso, as
+  opções são mais terminais por cliente ou comerciantes físicos sorteados para
+  garantir as categorias básicas em toda cidade.
 - O tempo de geração dobra com comerciantes (12,2 s → 26,9 s em 10 000 clientes × 180
   dias). A escolha do terminal por categoria é um laço em Python por cliente; dá para
   vetorizar se for preciso.

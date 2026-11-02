@@ -782,6 +782,11 @@ class MerchantCategory:
         weekend_factor: Multiplier of the preference for the category on weekends.
         skimming_risk: Relative chance that a merchant of the category is
             compromised (fraud scenario 2).
+        online_fraction: Mixed categories (``"CP+CNP"``) only: mean share of online
+            purchases. A customer buys online with probability
+            ``sigmoid(c + logit(cnp_prob))``, with ``c`` chosen so that the mean
+            over ``cnp_prob ~ U(0, 1)`` is ``online_fraction`` (0.5 gives
+            ``c = 0``, the customer's ``cnp_prob`` itself).
     """
 
     name: str
@@ -793,6 +798,7 @@ class MerchantCategory:
     opening_hours: tuple[int, int] = (0, 24)
     weekend_factor: float = 1.0
     skimming_risk: float = 1.0
+    online_fraction: float = 0.5
 
     def __post_init__(self) -> None:
         if self.channel not in CHANNELS:
@@ -816,6 +822,8 @@ class MerchantCategory:
             raise ValueError(f"{self.name}: no CP purchase possible in opening hours.")
         if self.weekend_factor < 0 or self.skimming_risk < 0:
             raise ValueError(f"{self.name}: weekend_factor and skimming_risk >= 0.")
+        if not 0.0 < self.online_fraction < 1.0:
+            raise ValueError(f"{self.name}: online_fraction must be in (0, 1).")
 
     @property
     def has_cp(self) -> bool:
@@ -828,7 +836,9 @@ class MerchantCategory:
 
 # Empirical values, like the rest of the model (medians and hours of typical
 # purchases in Brazil), not calibrated on real data. Arguments: name, channel,
-# median, sigma, weight, hourly profile, opening hours, weekend factor, skimming risk.
+# median, sigma, weight, hourly profile, opening hours, weekend factor, skimming risk;
+# mixed categories also set the share of online purchases (few groceries online,
+# half of the electronics).
 DEFAULT_CATEGORIES: tuple[MerchantCategory, ...] = (
     MerchantCategory(
         "supermercado",
@@ -839,6 +849,7 @@ DEFAULT_CATEGORIES: tuple[MerchantCategory, ...] = (
         hourly_profile(((18, 2.5, 1.0), (11, 2.5, 0.5))),
         (8, 21),
         1.2,
+        online_fraction=0.10,
     ),
     MerchantCategory(
         "restaurante_bar",
@@ -863,7 +874,14 @@ DEFAULT_CATEGORIES: tuple[MerchantCategory, ...] = (
         3.0,
     ),
     MerchantCategory(
-        "farmacia", "CP+CNP", 70, 0.6, 0.08, hourly_profile(((15, 4.0, 1.0),)), (8, 22)
+        "farmacia",
+        "CP+CNP",
+        70,
+        0.6,
+        0.08,
+        hourly_profile(((15, 4.0, 1.0),)),
+        (8, 22),
+        online_fraction=0.15,
     ),
     MerchantCategory(
         "vestuario",
@@ -874,6 +892,7 @@ DEFAULT_CATEGORIES: tuple[MerchantCategory, ...] = (
         hourly_profile(((16, 2.5, 1.0),)),
         (10, 22),
         1.3,
+        online_fraction=0.30,
     ),
     MerchantCategory(
         "eletronicos",
@@ -884,6 +903,7 @@ DEFAULT_CATEGORIES: tuple[MerchantCategory, ...] = (
         hourly_profile(((16, 3.0, 1.0),)),
         (10, 22),
         1.1,
+        online_fraction=0.50,
     ),
     MerchantCategory(
         "viagem_turismo",

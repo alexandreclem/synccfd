@@ -612,7 +612,10 @@ def _scenario_1_purchase(
         return  # no merchant of these categories for this customer
     k = shop.pick(possible, rng)
     cp_ok = world.has_cp[k] and len(reach[k]) > 0
-    is_cnp = not cp_ok or (world.has_cnp[k] and rng.random() < shop.cnp_prob[customer])
+    is_cnp = not cp_ok or (
+        world.has_cnp[k]
+        and rng.random() < world.online_probability(k, shop.cnp_prob[customer])
+    )
     if is_cnp:
         terminal = int(world.virtual_terminal(world.draw_online(k, 1, rng))[0])
     else:

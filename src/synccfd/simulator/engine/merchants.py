@@ -11,7 +11,8 @@
   factor ``LogNormal(0, sigma)``.
 - A purchase picks a category by preference (times the weekend factor on weekends,
   among the categories the customer can buy from), then the type (CP-only and
-  CNP-only categories fix it; mixed ones use ``cnp_prob``; no reachable terminal of
+  CNP-only categories fix it; mixed ones combine the category's online fraction with
+  the customer's ``cnp_prob`` on the logit scale; no reachable terminal of
   the category means CNP), the merchant (a favourite with probability ``loyalty``),
   the hour (category profile; CP only in opening hours) and the amount
   (``median * spending_factor * LogNormal(0, log_sigma)``).
@@ -58,6 +59,7 @@ class MerchantWorld:
     cp_hour_cdf: np.ndarray  # (K, 24): hours of CP purchases (opening hours only)
     cnp_hour_cdf: np.ndarray  # (K, 24)
     open_hours: np.ndarray  # (K, 24) bool: CP possible at that hour
+    cnp_logit_offset: np.ndarray  # (K,): shift of logit(cnp_prob), mixed categories
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -89,6 +91,13 @@ class MerchantWorld:
             rng.choice(len(merchants), size=n, p=self.online_popularity[category])
         ]
 
+    def online_probability(self, categories, cnp_prob) -> np.ndarray:
+        """Probability of buying online in (mixed) ``categories``:
+        ``sigmoid(offset + logit(cnp_prob))``."""
+        p = np.clip(np.asarray(cnp_prob, dtype=float), 1e-12, 1.0 - 1e-12)
+        logit = self.cnp_logit_offset[categories] + np.log(p / (1.0 - p))
+        return 1.0 / (1.0 + np.exp(-logit))
+
     def virtual_terminal(self, merchants: np.ndarray) -> np.ndarray:
         return np.array(
             [self.merchant_terminals[m][0] for m in merchants], dtype=np.int64
@@ -104,6 +113,27 @@ class MerchantWorld:
 def _cdf(weights: np.ndarray) -> np.ndarray:
     total = weights.sum(axis=-1, keepdims=True)
     return np.cumsum(weights / np.where(total > 0, total, 1.0), axis=-1)
+
+
+def cnp_logit_offset(online_fraction: float) -> float:
+    """Offset ``c`` such that ``sigmoid(c + logit(u))`` has mean ``online_fraction``
+    over ``u ~ U(0, 1)``. With ``r = exp(c)`` the mean is
+    ``r / (r - 1) * (1 - c / (r - 1))``; it grows with ``c``, so bisection."""
+
+    def mean(c: float) -> float:
+        if abs(c) < 1e-3:
+            return 0.5 + c / 6.0  # series (the next term is cubic)
+        a = float(np.expm1(c))
+        return (a + 1.0) / a * (1.0 - c / a)
+
+    low, high = -50.0, 50.0
+    for _ in range(100):
+        mid = 0.5 * (low + high)
+        if mean(mid) < online_fraction:
+            low = mid
+        else:
+            high = mid
+    return 0.5 * (low + high)
 
 
 def build_merchants(
@@ -224,6 +254,9 @@ def build_merchants(
         cp_hour_cdf=_cdf(profiles * open_hours),
         cnp_hour_cdf=_cdf(profiles),
         open_hours=open_hours,
+        cnp_logit_offset=np.array(
+            [cnp_logit_offset(c.online_fraction) for c in categories]
+        ),
     )
     return world, terminals
 
@@ -350,7 +383,11 @@ def customer_transactions(
     )
     cp_possible = world.has_cp[category] & reachable
     is_cnp = ~cp_possible | (
-        world.has_cnp[category] & (rng.random(n) < per_tx(customer["cnp_prob"], cnp_b))
+        world.has_cnp[category]
+        & (
+            rng.random(n)
+            < world.online_probability(category, per_tx(customer["cnp_prob"], cnp_b))
+        )
     )
 
     # 3. Merchant and terminal; favourites first, by category and regime

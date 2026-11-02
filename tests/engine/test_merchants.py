@@ -16,6 +16,7 @@ from synccfd.simulator.config import (
     MerchantConfig,
     hourly_profile,
 )
+from synccfd.simulator.engine.merchants import cnp_logit_offset
 from synccfd.simulator.ground_truth import compromise_table
 
 PARAMS = {
@@ -79,6 +80,8 @@ def test_default_categories_match_the_plan():
         {"hourly_profile": (1.0,) * 23},
         {"opening_hours": (22, 8)},
         {"hourly_profile": (1.0,) * 6 + (0.0,) * 18, "opening_hours": (8, 20)},
+        {"online_fraction": 0.0},
+        {"online_fraction": 1.0},
     ],
 )
 def test_invalid_category_raises(kwargs):
@@ -209,6 +212,38 @@ def test_cnp_only_categories_are_never_cp(shop_fraud):
     assert (
         transactions[transactions.MERCHANT_CATEGORY.isin(cp_only)].TX_TYPE == "CP"
     ).all()
+
+
+@pytest.mark.parametrize("fraction", [0.1, 0.15, 0.3, 0.5, 0.8])
+def test_cnp_logit_offset_keeps_the_mean(fraction):
+    # Mean of sigmoid(c + logit(u)) over u ~ U(0, 1), by the midpoint rule
+    u = (np.arange(200_000) + 0.5) / 200_000
+    c = cnp_logit_offset(fraction)
+    assert np.mean(1.0 / (1.0 + np.exp(-c) * (1.0 - u) / u)) == pytest.approx(
+        fraction, abs=1e-4
+    )
+    assert (c == pytest.approx(0.0, abs=1e-9)) == (fraction == 0.5)
+
+
+def test_online_fraction_of_mixed_categories(shop):
+    # Customers who reach a merchant of the category: share of online purchases
+    # near the category's online_fraction (the others always buy online)
+    customers, terminals, transactions, merchants = shop
+    terminal_category = terminals.MERCHANT_ID.map(merchants.MERCHANT_CATEGORY)
+    shares = {}
+    for name, category in CATEGORIES.items():
+        if category.channel != "CP+CNP":
+            continue
+        reaches = customers.available_terminals.map(
+            lambda t, name=name: bool((terminal_category.iloc[t] == name).any())
+        )
+        rows = transactions[
+            (transactions.MERCHANT_CATEGORY == name)
+            & transactions.CUSTOMER_ID.isin(customers.CUSTOMER_ID[reaches])
+        ]
+        shares[name] = (rows.TX_TYPE == "CNP").mean()
+        assert shares[name] == pytest.approx(category.online_fraction, abs=0.05), name
+    assert list(shares.values()) == sorted(shares.values())
 
 
 def test_median_amount_per_category():

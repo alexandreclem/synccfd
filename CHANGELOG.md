@@ -10,7 +10,8 @@ All notable changes to this project are documented here. The format is based on
 - **Merchants and categories** (`MerchantConfig`, v2 engine). Terminals belong to
   physical merchants; online merchants have virtual terminals. Ten default
   categories (`DEFAULT_CATEGORIES`) set the amount, the hour (CP only in opening
-  hours), the weekend effect and the skimming risk. Customers get category
+  hours), the weekend effect, the skimming risk and, in mixed categories, the share
+  of online purchases (`online_fraction`). Customers get category
   preferences, a spending factor and favourite merchants. New columns:
   `MERCHANT_ID` and `MERCHANT_CATEGORY` in the transactions, `MERCHANT_ID` in the
   terminal profiles, preferences in the customer profiles, and a new
