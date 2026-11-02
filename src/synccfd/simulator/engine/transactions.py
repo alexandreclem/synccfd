@@ -59,7 +59,7 @@ CNP_SHIPPING_PROBS = (0.9, 0.1)  # billing, random point
 def draw_times_of_day(is_cnp: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     """Integer seconds in ``[0, 86400]``; invalid draws are redrawn."""
     times = np.empty(len(is_cnp), dtype=np.int64)
-    pending = np.arange(len(is_cnp))
+    pending: np.ndarray = np.arange(len(is_cnp))
     while len(pending):
         cnp = is_cnp[pending]
         cp_times = np.trunc(rng.normal(CP_TIME_MEAN, CP_TIME_STD, len(pending)))

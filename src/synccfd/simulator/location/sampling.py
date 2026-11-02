@@ -55,7 +55,7 @@ def random_points_around(
     n = len(center_lat)
     lat = np.empty(n)
     long = np.empty(n)
-    pending = np.arange(n)
+    pending: np.ndarray = np.arange(n)
     for _ in range(max_attempts):
         if len(pending) == 0:
             return lat, long

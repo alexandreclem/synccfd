@@ -595,8 +595,7 @@ foi feito assim. Escrito para ser adaptado diretamente para a dissertação.>
 
 ## Fase 0 — Rede de segurança e configuração da fraude
 
-**Status:** implementada e aprovada em 2026-11-02, na branch `feat/v0.2-simulator`
-· PR *(a abrir)*
+**Status:** concluída em 2026-11-02 · integrada ao master pelo PR #1 (`d32326d`)
 
 ### O que foi implementado
 
@@ -617,12 +616,12 @@ A igualdade exata em todas as colunas, prevista no plano, não se sustenta entre
 plataformas. Gerado no Linux (Ubuntu 22.04, Python 3.10, pandas 2.3.3), o conjunto tem
 exatamente as mesmas linhas, os mesmos valores, tipos e rótulos (741 transações
 fraudulentas nos dois casos), mas as coordenadas diferem no último bit, em até
-$1{,}4 	imes 10^{-14}$, porque as bibliotecas matemáticas do Windows e do Linux
+$1{,}4 \times 10^{-14}$, porque as bibliotecas matemáticas do Windows e do Linux
 arredondam de forma diferente. Além disso, a unidade inferida para `TX_DATETIME` depende
 da versão do pandas (`[ms]` no arquivo gravado com o pandas 3.0.3, `[ns]` no pandas
 2.3.3). A tolerância de $10^{-12}$ é cerca de cem vezes maior que a diferença observada e
 ainda detecta mudanças reais: um teste confirma que `amount_multiplier=5.0001` (variação
-relativa de $2 	imes 10^{-5}$ no valor) é rejeitado.
+relativa de $2 \times 10^{-5}$ no valor) é rejeitado.
 
 Em seguida, todos os parâmetros da fraude que estavam fixos no código passaram a ser
 lidos de um objeto de configuração imutável, `FraudConfig`, definido em
@@ -725,7 +724,7 @@ Nenhuma (a Fase 0 não tem notebook).
 | taxa de fraude com a regra original do plano, $\max(1, \mathrm{round}(f \cdot N))$, frações padrão | 1,78% (500) × 0,23% (5 000) | idem (medido antes da correção, para justificá-la) |
 | taxa de fraude média, modo proporcional (Poisson), frações padrão | 0,508% (500 clientes; DP 0,110%) × 0,543% (5 000 clientes; DP 0,029%); diferença relativa de 6,4% | terminais = 2 × clientes, 60 dias, início 2023-01-01, 20 sementes (0 a 19); DP = desvio-padrão entre sementes |
 | taxa média por cenário, mesma configuração | 500 clientes: cenário 1: 0,074%; 2: 0,166%; 3: 0,113%; 4: 0,156%. 5 000 clientes: 1: 0,057%; 2: 0,225%; 3: 0,117%; 4: 0,145% | idem |
-| maior diferença entre Windows e Linux no conjunto golden | $1{,}4 	imes 10^{-14}$ (em `TX_SHIPP_LONG`; demais coordenadas até $7{,}1 	imes 10^{-15}$); nenhuma diferença nas colunas não float | Windows 11, Python 3.11.4, pandas 3.0.3 × Ubuntu 22.04 (WSL), Python 3.10.12, pandas 2.3.3 |
+| maior diferença entre Windows e Linux no conjunto golden | $1{,}4 \times 10^{-14}$ (em `TX_SHIPP_LONG`; demais coordenadas até $7{,}1 \times 10^{-15}$); nenhuma diferença nas colunas não float | Windows 11, Python 3.11.4, pandas 3.0.3 × Ubuntu 22.04 (WSL), Python 3.10.12, pandas 2.3.3 |
 | tempo de geração das transações legítimas (motor legacy) | 6,1 s (500 clientes, 9 790 transações) e 47,5 s (5 000 clientes, 96 566 transações) | 10 dias; Windows 11, Python 3.11.4; referência para o benchmark da Fase 1 |
 
 ### Testes que comprovam o comportamento
@@ -813,8 +812,9 @@ como já previsto na Fase 5.
 
 ## Fase 1 — Motor v2
 
-**Status:** implementada em 2026-11-02, na branch `feat/v0.2-phase1-engine`, aguardando
-revisão · PR *(a abrir)*
+**Status:** implementada e aprovada em 2026-11-02, na branch
+`feat/v0.2-phase1-engine` · PR *(número e commit de merge registrados no início da
+Fase 2)*
 
 ### O que foi implementado
 
@@ -983,7 +983,7 @@ descartados), o v2 difere do legacy em dois pontos:
    desempata pelo cliente e depois pela ordem de geração, o que torna o resultado
    determinístico.
 2. **Geometria esférica, e não geodésica.** No v2, o ponto a uma distância $s$ e com um
-   rumo $	heta$ de um centro é calculado pela fórmula esférica, com raio médio
+   rumo $\theta$ de um centro é calculado pela fórmula esférica, com raio médio
    $R = 6\,371{,}0088$ km, a mesma do pacote `haversine`. No legacy, ele é calculado
    pelo `geopy`, sobre o elipsoide WGS84. As distâncias entre pontos (terminais ao
    alcance, fraudador perto da vítima) usam haversine nos dois motores. A diferença entre
@@ -1002,7 +1002,13 @@ nos atributos.
   os terminais por cidade, se necessário.
 - No v2, a escolha de *quais* terminais e clientes são comprometidos já usa o gerador
   local (pendência da Fase 0 resolvida).
-- O teste do notebook ainda precisa ser confirmado no CI (Linux), no primeiro push.
+- O teste do notebook foi confirmado no CI (Linux, Python 3.11): o job `slow`, com a
+  comparação v2 × legacy e o notebook, levou cerca de 6 min.
+- No CI com Python 3.10 (numpy 2.2), o `mypy` acusou um erro de tipo que não aparece
+  com o numpy mais recente: os stubs do numpy 2.2 tratam de forma diferente a forma do
+  array resultante de uma indexação booleana. Foi corrigido só com anotação de tipo.
+  Conferir o `mypy` contra a versão mínima suportada do numpy, e não só contra a mais
+  recente.
 
 ## Fase 2 — Customers com *concept drift*
 *(a preencher)*
