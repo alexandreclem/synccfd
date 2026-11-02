@@ -279,6 +279,53 @@ at a compromised terminal and the frauds later made with that card;
 compromises. Injected transactions have no `GT_REGIME`. See
 [`examples/frauds.ipynb`](examples/frauds.ipynb).
 
+## Merchants and categories
+
+With `merchants=MerchantConfig()` (v2 engine), the amount and the time of a purchase
+depend on the merchant's **category**, not only on the customer:
+
+```python
+from synccfd import DatasetGenerator
+from synccfd.simulator.config import MerchantConfig
+
+generator = DatasetGenerator(
+    n_customers=10_000, nb_days=180, merchants=MerchantConfig()
+)
+customer_profiles, terminal_profiles, transactions = generator.generate()
+merchant_profiles = generator.merchant_profiles
+```
+
+- The terminals belong to physical merchants (1 + Poisson(0.5) terminals in one city).
+  Online merchants (20 per category with CNP) have one virtual terminal at their head
+  office; their popularity follows a Zipf law.
+- Ten default categories (`DEFAULT_CATEGORIES`): supermarket, restaurant, fuel
+  station, pharmacy, clothing, electronics (CP and/or CNP), travel, marketplace,
+  digital services and ride-hailing (CNP only). Each has a median amount and a
+  spread, a weight, a 24-hour profile, opening hours (CP purchases only happen
+  then), a weekend factor and a skimming risk. All are configurable.
+- Mixed categories (CP and CNP) have an online fraction (supermarket 0.10, pharmacy
+  0.15, clothing 0.30, electronics 0.50), combined with the customer's `cnp_prob` on
+  the logit scale, so that the mean stays at the category's fraction. Customers with
+  no merchant of the category in reach always buy it online.
+- Each customer has a preference over the categories, `Dirichlet(10 × weights)`, a
+  spending factor, `LogNormal(0, 0.5)`, and favourite merchants per category (60% of
+  the purchases in a category go to 2 favourites). A purchase costs
+  `median × spending factor × LogNormal(0, σ)` of its category.
+- With drift, regime B also changes the category preferences. With fraud injection,
+  each scenario buys in its own categories, and scenario 2 compromises whole merchants,
+  chosen by the category's skimming risk.
+
+New columns:
+- `transactions` get `MERCHANT_ID` and `MERCHANT_CATEGORY`. They are observable,
+  like an MCC, so they are not `GT_*`.
+- `terminal_profiles` get `MERCHANT_ID`.
+- `customer_profiles` get `spending_factor` and `pref_<category>`; `mean_amount` and
+  `std_amount` are recomputed from the generated transactions.
+- `merchant_profiles` (saved by `save()`) lists `MERCHANT_ID`, `MERCHANT_CATEGORY`,
+  `channel`, `n_terminals`, `lat` and `long`.
+
+See [`examples/merchants.ipynb`](examples/merchants.ipynb).
+
 ## Reproducibility & scope
 
 - Runs are deterministic: the same parameters always produce the same dataset.

@@ -84,6 +84,40 @@ def draw_times_of_day(is_cnp: np.ndarray, rng: np.random.Generator) -> np.ndarra
     return times
 
 
+def draw_shipping(
+    is_cnp: np.ndarray,
+    term_lat: np.ndarray,
+    term_long: np.ndarray,
+    bill_lat: np.ndarray,
+    bill_long: np.ndarray,
+    loc_features: LocationFeatures,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Shipping address: CP, terminal (0.8), billing (0.15) or a random point around
+    the billing address (0.05); CNP, billing (0.9) or a random point (0.1)."""
+    u = rng.random(len(is_cnp))
+    at_terminal = ~is_cnp & (u < CP_SHIPPING_PROBS[0])
+    at_billing = np.where(
+        is_cnp,
+        u < CNP_SHIPPING_PROBS[0],
+        (u >= CP_SHIPPING_PROBS[0]) & (u < CP_SHIPPING_PROBS[0] + CP_SHIPPING_PROBS[1]),
+    )
+    random_point = ~at_terminal & ~at_billing
+    shipp_lat = np.where(at_terminal, term_lat, bill_lat)
+    shipp_long = np.where(at_terminal, term_long, bill_long)
+    if random_point.any():
+        lat, long = sampling.random_points_around(
+            bill_lat[random_point],
+            bill_long[random_point],
+            loc_features.available_terminals_radius,
+            loc_features.data["brazil_polygon"],
+            rng,
+        )
+        shipp_lat[random_point] = lat
+        shipp_long[random_point] = long
+    return shipp_lat, shipp_long
+
+
 def _regime_parameter(
     a: float, b: float, kind: str, is_b: np.ndarray, w: np.ndarray
 ) -> np.ndarray:
@@ -190,27 +224,9 @@ def _customer_transactions(
         cp_terminals = np.where(is_b, cp_b, cp_a)
     terminals = np.where(is_cnp, cnp_terminals, cp_terminals)
     term_lat, term_long = terminal_lat[terminals], terminal_long[terminals]
-
-    u = rng.random(n)
-    at_terminal = ~is_cnp & (u < CP_SHIPPING_PROBS[0])
-    at_billing = np.where(
-        is_cnp,
-        u < CNP_SHIPPING_PROBS[0],
-        (u >= CP_SHIPPING_PROBS[0]) & (u < CP_SHIPPING_PROBS[0] + CP_SHIPPING_PROBS[1]),
+    shipp_lat, shipp_long = draw_shipping(
+        is_cnp, term_lat, term_long, bill_lat, bill_long, loc_features, rng
     )
-    random_point = ~at_terminal & ~at_billing
-    shipp_lat = np.where(at_terminal, term_lat, bill_lat)
-    shipp_long = np.where(at_terminal, term_long, bill_long)
-    if random_point.any():
-        lat, long = sampling.random_points_around(
-            bill_lat[random_point],
-            bill_long[random_point],
-            loc_features.available_terminals_radius,
-            loc_features.data["brazil_polygon"],
-            rng,
-        )
-        shipp_lat[random_point] = lat
-        shipp_long[random_point] = long
 
     seconds = draw_times_of_day(is_cnp, rng) + days * SECONDS_PER_DAY
 
@@ -280,10 +296,22 @@ def generate_transactions(
             per_customer_drift,
         )
     ]
+    return finish_transactions(
+        parts, start_date, drift_columns=drifts is not None, shock_column=shock_column
+    )
+
+
+def finish_transactions(
+    parts: list[dict[str, np.ndarray]],
+    start_date: datetime.datetime,
+    drift_columns: bool,
+    shock_column: bool,
+) -> pd.DataFrame:
+    """Join the per-customer columns and build the chronological frame."""
     columns = {key: np.concatenate([p[key] for p in parts]) for key in parts[0]}
 
     extra: list[str] = []
-    if drifts is not None:
+    if drift_columns:
         columns["GT_REGIME"] = np.where(columns.pop("GT_IS_B"), "B", "A")
         extra += ["GT_REGIME_WEIGHT", "GT_REGIME"]
     if shock_column:

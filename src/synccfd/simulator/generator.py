@@ -8,7 +8,7 @@ import pandas as pd
 from synccfd.utils.data import DataManager
 
 from . import engine as v2
-from .config import DriftConfig, FraudConfig, SeasonalityConfig
+from .config import DriftConfig, FraudConfig, MerchantConfig, SeasonalityConfig
 from .legacy.fraud import FraudSimulator
 from .legacy.generator import _TransactionGenerator
 from .location.features import LocationFeatures
@@ -39,7 +39,8 @@ class DatasetGenerator:
       statistically, not draw by draw.
 
     ``engine="auto"`` (default) uses ``"legacy"`` unless a component that only the
-    v2 engine supports is enabled: ``drift``, ``seasonality`` or fraud injection
+    v2 engine supports is enabled: ``drift``, ``seasonality``, ``merchants`` or
+    fraud injection
     (``FraudConfig(mechanism="inject")``).
 
     Example:
@@ -60,6 +61,7 @@ class DatasetGenerator:
         fraud: Optional[FraudConfig] = None,
         drift: Optional[DriftConfig] = None,
         seasonality: Optional[SeasonalityConfig] = None,
+        merchants: Optional[MerchantConfig] = None,
         engine: str = "auto",
     ):
         """Initialize DatasetGenerator.
@@ -81,6 +83,11 @@ class DatasetGenerator:
                 disables it.
             seasonality: Calendar patterns (v2 engine only). ``None`` (default)
                 disables them.
+            merchants: Merchants and categories (v2 engine only). ``None``
+                (default) disables them. With merchants, the transactions get
+                ``MERCHANT_ID`` and ``MERCHANT_CATEGORY``, the terminal profiles get
+                ``MERCHANT_ID``, and ``merchant_profiles`` is filled by
+                :meth:`generate`.
             engine: ``"auto"``, ``"legacy"`` or ``"v2"`` (see the class docstring).
                 Defaults to ``"auto"``.
         """
@@ -89,6 +96,7 @@ class DatasetGenerator:
         self.fraud_config = fraud if fraud is not None else FraudConfig()
         self.drift_config = drift
         self.seasonality_config = seasonality
+        self.merchant_config = merchants
         self.engine = self._resolve_engine(engine)
         self.n_customers = n_customers
         self.n_terminals = n_terminals
@@ -102,6 +110,7 @@ class DatasetGenerator:
         self.customer_profiles: Optional[pd.DataFrame] = None
         self.terminal_profiles: Optional[pd.DataFrame] = None
         self.transactions: Optional[pd.DataFrame] = None
+        self.merchant_profiles: Optional[pd.DataFrame] = None
         self._loc_features: Optional[LocationFeatures] = None
 
         if self.engine == "v2":
@@ -131,6 +140,7 @@ class DatasetGenerator:
             for name, value in (
                 ("drift", self.drift_config),
                 ("seasonality", self.seasonality_config),
+                ("merchants", self.merchant_config),
                 (
                     'fraud mechanism="inject"',
                     self.fraud_config
@@ -197,7 +207,9 @@ class DatasetGenerator:
                 fraud=self.fraud_config,
                 drift=self.drift_config,
                 seasonality=self.seasonality_config,
+                merchants=self.merchant_config,
             )
+            self.merchant_profiles = result.merchant_profiles
             customer_profiles = result.customer_profiles
             terminal_profiles = result.terminal_profiles
             transactions = result.transactions
@@ -232,8 +244,9 @@ class DatasetGenerator:
     ) -> None:
         """Persist the most recently generated dataset to disk.
 
-        Writes customer/terminal profiles and (day-partitioned) transactions
-        under ``output_dir``. Call :meth:`generate` first.
+        Writes customer/terminal (and, with merchants, merchant) profiles and
+        (day-partitioned) transactions under ``output_dir``. Call :meth:`generate`
+        first.
 
         Args:
             output_dir: Base directory to write the dataset into. Defaults to 'data'.
@@ -251,6 +264,7 @@ class DatasetGenerator:
             transactions=self.transactions,
             customer_profiles=self.customer_profiles,
             terminal_profiles=self.terminal_profiles,
+            merchant_profiles=self.merchant_profiles,
             save_format=save_format,
             save_by_day=save_by_day,
         )

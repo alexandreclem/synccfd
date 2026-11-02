@@ -28,6 +28,7 @@ class DataManager:
         transactions: pd.DataFrame,
         customer_profiles: Optional[pd.DataFrame] = None,
         terminal_profiles: Optional[pd.DataFrame] = None,
+        merchant_profiles: Optional[pd.DataFrame] = None,
         save_format: str = "pkl",
         save_by_day: bool = True,
         data_type: Optional[str] = None,
@@ -38,6 +39,7 @@ class DataManager:
             transactions: DataFrame with transaction data
             customer_profiles: Optional DataFrame with customer profiles
             terminal_profiles: Optional DataFrame with terminal profiles
+            merchant_profiles: Optional DataFrame with merchant profiles
             save_format: Format to save in ('pkl', 'parquet', or 'csv')
             save_by_day: Whether to split transactions by day
             data_type: 'raw' or 'transformed' (mandatory)
@@ -61,7 +63,8 @@ class DataManager:
         os.makedirs(transactions_dir, exist_ok=True)
 
         # Save profiles if provided
-        if any([customer_profiles is not None, terminal_profiles is not None]):
+        profiles = (customer_profiles, terminal_profiles, merchant_profiles)
+        if any(p is not None for p in profiles):
             os.makedirs(self.profiles_dir, exist_ok=True)
 
             if customer_profiles is not None:
@@ -75,6 +78,13 @@ class DataManager:
                 self._save_dataframe(
                     terminal_profiles,
                     os.path.join(self.profiles_dir, f"terminal_profiles.{save_format}"),
+                    save_format,
+                )
+
+            if merchant_profiles is not None:
+                self._save_dataframe(
+                    merchant_profiles,
+                    os.path.join(self.profiles_dir, f"merchant_profiles.{save_format}"),
                     save_format,
                 )
 

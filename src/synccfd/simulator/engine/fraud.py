@@ -29,7 +29,7 @@ Unlike v0.1, the transactions are sorted chronologically again at the end (scena
 
 import datetime
 from collections import deque
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import pandas as pd
@@ -39,6 +39,9 @@ from ..location import sampling
 from ..location.features import LocationFeatures
 from .injection import FRAUD_GT_COLUMNS, inject_frauds
 from .rng import RandomStreams
+
+if TYPE_CHECKING:
+    from .merchants import MerchantWorld
 from .transactions import SECONDS_PER_DAY, assemble_transactions
 
 
@@ -65,12 +68,13 @@ def apply_frauds(
     start_date: datetime.datetime,
     nb_days: Optional[int] = None,
     shock_by_day: Optional[np.ndarray] = None,
+    merchants: Optional["MerchantWorld"] = None,
 ) -> pd.DataFrame:
     """Label (and tamper) transactions according to ``config``; returns a new frame.
 
     With ``config.mechanism == "inject"``, fraud transactions are added instead (see
-    ``injection.py``); ``nb_days`` bounds them, and ``shock_by_day`` fills
-    ``GT_SHOCK`` for them.
+    ``injection.py``); ``nb_days`` bounds them, ``shock_by_day`` fills
+    ``GT_SHOCK`` for them, and ``merchants`` puts them in merchant categories.
     """
     tx = {c: transactions[c].to_numpy().copy() for c in transactions.columns}
     tx["IS_CNP"] = tx.pop("TX_TYPE") == "CNP"
@@ -90,6 +94,7 @@ def apply_frauds(
             start_date,
             nb_days if nb_days is not None else n_days,
             shock_by_day,
+            merchants,
         )
     scenarios = config.scenarios
 
@@ -129,6 +134,7 @@ def _inject(
     start_date: datetime.datetime,
     n_days: int,
     shock_by_day: Optional[np.ndarray],
+    merchants: Optional["MerchantWorld"],
 ) -> pd.DataFrame:
     n_tx = len(transactions)
     tx["GT_FRAUDSTER_ID"] = np.full(n_tx, -1, dtype=np.int64)
@@ -136,7 +142,14 @@ def _inject(
     tx["GT_COMPROMISE_ID"] = np.full(n_tx, -1, dtype=np.int64)
     rngs = {k: streams.generator("fraud", k) for k in config.scenarios}
     injected = inject_frauds(
-        tx, customer_profiles, terminal_profiles, loc_features, config, rngs, n_days
+        tx,
+        customer_profiles,
+        terminal_profiles,
+        loc_features,
+        config,
+        rngs,
+        n_days,
+        merchants=merchants,
     )
     drift_gt = tuple(c for c in transactions.columns if c.startswith("GT_"))
     if injected:

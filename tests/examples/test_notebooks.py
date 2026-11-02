@@ -2,8 +2,7 @@
 
 The notebook files are not modified: the sizes are replaced in memory before
 running, in a temporary working directory (``simulator.ipynb`` writes a dataset to
-``data/``; ``drift.ipynb`` and ``frauds.ipynb`` write their figures to
-``SYNCCFD_FIG_DIR``).
+``data/``; the other notebooks write their figures to ``SYNCCFD_FIG_DIR``).
 """
 
 from pathlib import Path
@@ -32,6 +31,12 @@ REDUCED_SIZES = {
             "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 2000, 4000, 365"
         ),
     },
+    # Enough customers for every category; fewer days.
+    "merchants.ipynb": {
+        "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 5000, 10000, 90": (
+            "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 1000, 2000, 30"
+        ),
+    },
     # Enough card-testing campaigns to find one that escalates over several days.
     "frauds.ipynb": {
         "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 5000, 10000, 365": (
@@ -40,12 +45,23 @@ REDUCED_SIZES = {
     },
 }
 FIGURES = {
-    "drift.ipynb": {"drift_exemplos_clientes.pdf", "drift_fracao_regime_b.pdf"},
+    "drift.ipynb": {
+        "drift_exemplos_clientes.pdf",
+        "drift_fracao_regime_b.pdf",
+        "drift_categorias.pdf",
+    },
+    "merchants.ipynb": {
+        "comerciantes_valor_por_categoria.pdf",
+        "comerciantes_hora_categoria.pdf",
+        "comerciantes_participacao.pdf",
+    },
     "frauds.ipynb": {
         "fraudes_taxa_por_cenario.pdf",
         "fraudes_campanha_card_testing.pdf",
         "fraudes_valor_por_cenario.pdf",
         "fraudes_cenario1_regime_b.pdf",
+        "fraudes_categoria_por_cenario.pdf",
+        "fraudes_cenario3_migracao.pdf",
     },
 }
 
