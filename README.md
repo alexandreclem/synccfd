@@ -106,6 +106,12 @@ with plots.
 
 **`terminal_profiles`**: `TERMINAL_ID`, `terminal_lat`, `terminal_long`.
 
+> **Ground truth is not a feature.** Columns starting with `GT_` (and
+> `TX_FRAUD_SCENARIO`) describe how the data was generated: drift regimes, fraud
+> scenarios. A model could not observe them in practice, so never use them as model
+> inputs. They are there to evaluate models (for example, per scenario or per
+> regime).
+
 ## Fraud scenarios
 
 | # | Scenario | Behaviour |
@@ -185,6 +191,56 @@ Both engines produce the same columns and dtypes. Differences in v2:
   4 moves transactions in time), and `TRANSACTION_ID` is the chronological position.
 - Random points around a location use a spherical model instead of geopy's
   ellipsoid; the difference is negligible at the radii used (≤ 12 km).
+
+## Concept drift and seasonality
+
+Customers can change behaviour over time (v2 engine; `engine="auto"` switches to it
+when `drift` or `seasonality` is set):
+
+```python
+from synccfd import DatasetGenerator
+from synccfd.simulator.config import DriftConfig, SeasonalityConfig
+
+generator = DatasetGenerator(
+    n_customers=10_000,
+    nb_days=365,
+    drift=DriftConfig(customer_fraction=0.3),
+    seasonality=SeasonalityConfig(),
+)
+customer_profiles, terminal_profiles, transactions = generator.generate()
+```
+
+Each customer has a **regime A** (its profile). A drifting customer also gets a
+**regime B**, drawn from A: amount and frequency multiplied by log-normal factors,
+CNP probability shifted on the logit scale and, with a small probability, a new
+city. The weight of regime B over time, `w(t)`, depends on the drift type:
+
+| Type | `w(t)` | Effect |
+| --- | --- | --- |
+| `sudden` | 0 before `t0`, 1 after | regime B from `t0` on |
+| `gradual` | rises from 0 to 1 over `[t0, t0 + L]` | each transaction comes from B with probability `w(t)` |
+| `incremental` | same | parameters interpolated between A and B |
+| `recurrent` | 1 for `D` days every `P` days, from `t0` | e.g. holidays, travel |
+
+`DriftConfig(global_drift=GlobalDrift(...))` adds population drift (an amount trend,
+shocks such as Black Friday). `SeasonalityConfig` adds calendar patterns (weekday,
+paydays, December). These patterns repeat, so they are labelled separately from
+drift. Customers without drift keep exactly the same transactions when drift is
+enabled.
+
+Ground-truth columns:
+
+- **`customer_profiles`**:
+  - `GT_DRIFT_TYPE` (`none`, `sudden`, `gradual`, `incremental`, `recurrent`);
+  - `GT_DRIFT_T0`, `GT_DRIFT_L`, `GT_DRIFT_PERIOD`, `GT_DRIFT_ACTIVE_DAYS`;
+  - the regime B parameters `GT_B_*`, and `GT_RELOCATED`.
+- **`transactions`**:
+  - `GT_REGIME_WEIGHT` (`w` on the transaction's day);
+  - `GT_REGIME` (`A`/`B`; for incremental drift, `B` once `w >= 0.5`);
+  - with global drift, `GT_SHOCK`.
+
+See [`examples/drift.ipynb`](examples/drift.ipynb) for one customer of each drift
+type.
 
 ## Reproducibility & scope
 

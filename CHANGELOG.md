@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Concept drift** (`DriftConfig`, v2 engine). Customers can move from regime A to
+  regime B with sudden, gradual, incremental or recurrent drift, and optionally move
+  to another city. Population drift (`GlobalDrift`: amount trend and shocks) is also
+  available. Ground truth goes in `GT_*` columns of the customer profiles and the
+  transactions. Customers without drift keep exactly the same transactions.
+- **Seasonality** (`SeasonalityConfig`, v2 engine): weekday, payday and December
+  factors, kept separate from drift.
+- `DatasetGenerator(drift=..., seasonality=...)`: `engine="auto"` switches to v2 when
+  either is set.
+- `examples/drift.ipynb`, with the figures in `docs/figures/fase2/`. The slow test now
+  runs both example notebooks.
 - **v2 engine** (`DatasetGenerator(engine="v2")`, package `synccfd.simulator.engine`):
   a vectorised engine with the v0.1 model, using only local random streams
   (`numpy.random.Generator`, derived from `random_state` through named
