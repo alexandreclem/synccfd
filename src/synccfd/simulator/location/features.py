@@ -1,6 +1,6 @@
 import random
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import geopandas as gpd
 import pandas as pd
@@ -52,7 +52,11 @@ def random_point_around_a_center(
 
 
 def gen_random_points(
-    num_points: int, radius: float, polygon, cities: pd.DataFrame, random_state: int
+    num_points: int,
+    radius: float,
+    polygon,
+    cities: pd.DataFrame,
+    random_state: Optional[int],
 ) -> dict[str, pd.DataFrame]:
     """Generate random points around cities weighted by population."""
     cities_sample = cities.sample(
@@ -90,16 +94,17 @@ class LocationFeatures:
         self,
         city_radius: float = 12,
         available_terminals_radius: float = 10,
-        random_state: int = None,
+        random_state: Optional[int] = None,
     ):
         self.data = self._load_geo_data()
-        self.n_customers = None
-        self.n_terminals = None
-        self.billing_locations = None
-        self.billing_cities_locations = None
-        self.terminal_locations = None
-        self.terminal_cities_locations = None
-        self.customers_available_terminals = None
+        # Populated lazily by the gen_* methods below.
+        self.n_customers: Any = None
+        self.n_terminals: Any = None
+        self.billing_locations: Any = None
+        self.billing_cities_locations: Any = None
+        self.terminal_locations: Any = None
+        self.terminal_cities_locations: Any = None
+        self.customers_available_terminals: Any = None
         self.city_radius = city_radius
         self.available_terminals_radius = available_terminals_radius
 
@@ -139,7 +144,9 @@ class LocationFeatures:
             "brazil_cities": brazil_cities,
         }
 
-    def gen_billing_locations(self, n_customers: int, random_state: int = None) -> None:
+    def gen_billing_locations(
+        self, n_customers: int, random_state: Optional[int] = None
+    ) -> None:
         """Generate billing locations for customers."""
         random_locs = gen_random_points(
             n_customers,
@@ -224,7 +231,7 @@ class LocationFeatures:
 
     def gen_tx_locations(self, customer_id: int, tx_type: str) -> dict[str, Any]:
         """Generate transaction locations."""
-        tx_locations = {}
+        tx_locations: dict[str, Any] = {}
 
         tx_locations["tx_billing_loc"] = self.get_billing_location(customer_id)
         tx_locations["tx_terminal_id"] = self.gen_customer_terminal_association(
@@ -327,7 +334,7 @@ class LocationFeatures:
         elif fraud_scenario == 4:
             for customer_id in customer_ids:
                 billing_city_loc = self.billing_cities_locations.iloc[int(customer_id)]
-                fraudster_loc = random_point_around_a_center(
+                fraudster_point = random_point_around_a_center(
                     billing_city_loc["lat"],
                     billing_city_loc["long"],
                     self.city_radius,
@@ -335,7 +342,7 @@ class LocationFeatures:
                 )
 
                 fraudster_terminals = gen_available_terminals(
-                    fraudster_loc,
+                    fraudster_point,
                     self.terminal_locations,
                     self.available_terminals_radius,
                 )
@@ -361,7 +368,9 @@ class LocationFeatures:
                         compromised_txs.at[idx, "TERMINAL_ID"] = terminal_id
                         compromised_txs.at[idx, "TX_TERM_LAT"] = terminal_loc["lat"]
                         compromised_txs.at[idx, "TX_TERM_LONG"] = terminal_loc["long"]
-                        compromised_txs.at[idx, "TX_SHIPP_LAT"] = fraudster_loc["lat"]
-                        compromised_txs.at[idx, "TX_SHIPP_LONG"] = fraudster_loc["long"]
+                        compromised_txs.at[idx, "TX_SHIPP_LAT"] = fraudster_point["lat"]
+                        compromised_txs.at[idx, "TX_SHIPP_LONG"] = fraudster_point[
+                            "long"
+                        ]
 
         return compromised_txs

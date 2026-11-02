@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `FraudConfig` (`synccfd.simulator.config`): every fraud parameter that was hard-coded
+  (scenario selection, amount threshold, compromises per day, durations, tamper
+  fraction, amount multiplier, CNP probability) is now configurable through
+  `DatasetGenerator(fraud=...)` or `FraudSimulator(config=...)`. Defaults reproduce
+  v0.1.0 exactly.
+- `rate_mode="proportional"`: the number of compromised terminals/customers per day
+  is drawn from `Poisson(fraction × population)`, so the expected fraud rate no longer
+  depends on the dataset size (in `"absolute"` mode, the default, small datasets get
+  a very high fraud rate).
+- Golden regression test (`tests/golden/`) freezing the v0.1.0 output, and
+  `scripts/make_golden.py` documenting how it was produced.
+
+### Fixed
+- Fraud scenarios 3 and 4 no longer crash with `IndexError` when the compromised
+  customers queue is empty. This happened when, on some day, fewer customers than
+  needed were available, so nothing was added to the queue but an entry was still
+  removed later. Results are unchanged whenever v0.1 did not crash.
+- `mypy src` now passes (annotation-only changes, no behaviour change).
+
+### Changed
+- CI: `mypy` failures now fail the build; slow end-to-end tests are excluded from the
+  default `pytest` run and run in a separate CI job (`pytest -m slow`).
+
 ## [0.1.0] — Unreleased
 
 First public release: the **data simulator** only. The machine-learning pipeline

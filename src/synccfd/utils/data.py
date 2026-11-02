@@ -30,7 +30,7 @@ class DataManager:
         terminal_profiles: Optional[pd.DataFrame] = None,
         save_format: str = "pkl",
         save_by_day: bool = True,
-        data_type: str = None,
+        data_type: Optional[str] = None,
     ) -> None:
         """Save transaction data and optionally profile data.
 
@@ -102,7 +102,11 @@ class DataManager:
             )
 
     def read_transactions(
-        self, begin_date: str, end_date: str, format: str = "pkl", data_type: str = None
+        self,
+        begin_date: str,
+        end_date: str,
+        format: str = "pkl",
+        data_type: Optional[str] = None,
     ) -> pd.DataFrame:
         """Load transaction data from files and combine them.
 

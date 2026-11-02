@@ -115,9 +115,57 @@ with plots.
 | 3 | Stolen card number (CNP) | A customer is compromised for ~2 weeks; a fraction of their transactions are tampered — forced to CNP, amount inflated, shipped to the fraudster's location |
 | 4 | Stolen physical card (CP) | A customer's card is stolen for a few days; the fraudster spends as much as possible, as fast as possible, from their own location |
 
+## Fraud configuration
+
+All fraud parameters are exposed through `FraudConfig`. The defaults reproduce
+v0.1.0 exactly.
+
+```python
+from synccfd import DatasetGenerator
+from synccfd.simulator.config import FraudConfig
+
+generator = DatasetGenerator(
+    n_customers=1000,
+    n_terminals=2000,
+    nb_days=30,
+    fraud=FraudConfig(
+        scenarios=(1, 3, 4),  # disable scenario 2
+        rate_mode="proportional",  # scale compromises with the population
+        s3_customer_fraction_per_day=3e-3,
+        s4_customer_fraction_per_day=3e-3,
+    ),
+)
+```
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `scenarios` | `(1, 2, 3, 4)` | Scenarios to apply |
+| `rate_mode` | `"absolute"` | `"absolute"`: fixed counts per day; `"proportional"`: daily count drawn from `Poisson(fraction × population)` |
+| `s1_amount_threshold` | `220.0` | Scenario 1 amount threshold |
+| `s2_terminals_per_day` / `s2_terminal_fraction_per_day` | `2` / `1e-4` | Terminals compromised per day |
+| `s2_duration_days` | `28` | Days a terminal stays compromised |
+| `s3_customers_per_day` / `s3_customer_fraction_per_day` | `3` / `3e-4` | Card numbers stolen per day |
+| `s4_customers_per_day` / `s4_customer_fraction_per_day` | `3` / `3e-4` | Physical cards stolen per day |
+| `s3_duration_days`, `s4_duration_days` | `14`, `5` | Days a customer stays compromised |
+| `s3_tamper_fraction` | `1/3` | Fraction of a scenario-3 victim's transactions that become fraud |
+| `amount_multiplier` | `5.0` | Amount factor of tampered transactions (scenarios 3 and 4) |
+| `s4_cnp_prob` | `0.5` | Probability that a scenario-4 transaction is CNP |
+
+With `rate_mode="absolute"` the number of compromised terminals and customers per
+day does not depend on the dataset size, so small datasets get a very high fraud
+rate (about 26% with 100 customers and 15 days, against under 1% with 5 000
+customers). With `"proportional"`, each day's count is drawn from a Poisson
+distribution with mean `fraction × population`, so the *expected* fraud rate does not
+depend on the dataset size. On small datasets most days have no new compromise and
+the realised rate varies more from seed to seed. The default fractions give, on
+average, the absolute counts at the default size (10 000 customers, 20 000
+terminals). In this mode `random_state` controls the daily counts.
+
 ## Reproducibility & scope
 
-- Passing `random_state` makes a run fully reproducible.
+- Runs are deterministic: the same parameters always produce the same dataset. In
+  the current engine the random seeds are fixed internally, so `random_state` has
+  little effect on the generated data.
 - Locations are drawn from **Brazilian** municipality data bundled with the package
   (population-weighted). SynCCFD currently models a Brazil-based network.
 
