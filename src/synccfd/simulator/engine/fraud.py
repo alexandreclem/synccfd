@@ -1,9 +1,11 @@
-"""Fraud scenarios 1-4 (v2 engine).
+"""Fraud scenarios 1-4 (v2 engine), tamper mechanism.
 
-Same scenarios and parameters as v0.1 (``legacy/fraud.py``, configured by
-``FraudConfig``), with local random streams: scenario ``k`` draws everything (daily
-counts, compromised terminals/customers, tampering) from sub-stream ``k`` of the
-``fraud`` stream, so the scenarios are independent of each other.
+With ``FraudConfig(mechanism="inject")``, ``apply_frauds`` delegates to
+``injection.py`` (scenarios 1-5, new transactions). Otherwise: same scenarios and
+parameters as v0.1 (``legacy/fraud.py``, configured by ``FraudConfig``), with local
+random streams: scenario ``k`` draws everything (daily counts, compromised
+terminals/customers, tampering) from sub-stream ``k`` of the ``fraud`` stream, so the
+scenarios are independent of each other.
 
 - Scenario 1: every transaction above ``s1_amount_threshold`` is fraud.
 - Scenario 2: each day, ``n2`` terminals are compromised for ``s2_duration_days``;
@@ -27,6 +29,7 @@ Unlike v0.1, the transactions are sorted chronologically again at the end (scena
 
 import datetime
 from collections import deque
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -34,6 +37,7 @@ import pandas as pd
 from ..config import FraudConfig
 from ..location import sampling
 from ..location.features import LocationFeatures
+from .injection import FRAUD_GT_COLUMNS, inject_frauds
 from .rng import RandomStreams
 from .transactions import SECONDS_PER_DAY, assemble_transactions
 
@@ -59,14 +63,34 @@ def apply_frauds(
     config: FraudConfig,
     streams: RandomStreams,
     start_date: datetime.datetime,
+    nb_days: Optional[int] = None,
+    shock_by_day: Optional[np.ndarray] = None,
 ) -> pd.DataFrame:
-    """Label (and tamper) transactions according to ``config``; returns a new frame."""
+    """Label (and tamper) transactions according to ``config``; returns a new frame.
+
+    With ``config.mechanism == "inject"``, fraud transactions are added instead (see
+    ``injection.py``); ``nb_days`` bounds them, and ``shock_by_day`` fills
+    ``GT_SHOCK`` for them.
+    """
     tx = {c: transactions[c].to_numpy().copy() for c in transactions.columns}
     tx["IS_CNP"] = tx.pop("TX_TYPE") == "CNP"
     n_tx = len(transactions)
     tx["TX_FRAUD"] = np.zeros(n_tx, dtype=np.int64)
     tx["TX_FRAUD_SCENARIO"] = np.zeros(n_tx, dtype=np.int64)
     n_days = int(tx["TX_TIME_DAYS"].max()) + 1 if n_tx else 0
+    if config.mechanism == "inject":
+        return _inject(
+            tx,
+            transactions,
+            customer_profiles,
+            terminal_profiles,
+            loc_features,
+            config,
+            streams,
+            start_date,
+            nb_days if nb_days is not None else n_days,
+            shock_by_day,
+        )
     scenarios = config.scenarios
 
     if 1 in scenarios:
@@ -92,6 +116,62 @@ def apply_frauds(
     return assemble_transactions(
         tx, start_date, extra_columns=("TX_FRAUD", "TX_FRAUD_SCENARIO", *ground_truth)
     )
+
+
+def _inject(
+    tx: dict,
+    transactions: pd.DataFrame,
+    customer_profiles: pd.DataFrame,
+    terminal_profiles: pd.DataFrame,
+    loc_features: LocationFeatures,
+    config: FraudConfig,
+    streams: RandomStreams,
+    start_date: datetime.datetime,
+    n_days: int,
+    shock_by_day: Optional[np.ndarray],
+) -> pd.DataFrame:
+    n_tx = len(transactions)
+    tx["GT_FRAUDSTER_ID"] = np.full(n_tx, -1, dtype=np.int64)
+    tx["GT_CAMPAIGN_ID"] = np.full(n_tx, -1, dtype=np.int64)
+    tx["GT_COMPROMISE_ID"] = np.full(n_tx, -1, dtype=np.int64)
+    rngs = {k: streams.generator("fraud", k) for k in config.scenarios}
+    injected = inject_frauds(
+        tx, customer_profiles, terminal_profiles, loc_features, config, rngs, n_days
+    )
+    drift_gt = tuple(c for c in transactions.columns if c.startswith("GT_"))
+    if injected:
+        n_new = len(injected["TX_TIME_SECONDS"])
+        injected["TX_TIME_DAYS"] = injected["TX_TIME_SECONDS"] // SECONDS_PER_DAY
+        injected["TX_FRAUD"] = np.ones(n_new, dtype=np.int64)
+        # Injected transactions do not come from the customer's regimes
+        if "GT_REGIME_WEIGHT" in tx:
+            injected["GT_REGIME_WEIGHT"] = np.full(n_new, np.nan)
+        if "GT_REGIME" in tx:
+            tx["GT_REGIME"] = tx["GT_REGIME"].astype(object)
+            injected["GT_REGIME"] = np.full(n_new, None, dtype=object)
+        if "GT_SHOCK" in tx:
+            injected["GT_SHOCK"] = (
+                shock_by_day[injected["TX_TIME_DAYS"]]
+                if shock_by_day is not None
+                else np.zeros(n_new, dtype=bool)
+            )
+        tx = {
+            key: np.concatenate([value, injected[key].astype(value.dtype, copy=False)])
+            if key in injected
+            else value
+            for key, value in tx.items()
+            if key not in ("TX_DATETIME", "TRANSACTION_ID")
+        }
+    tx["GT_FRAUD_SCENARIO"] = tx["TX_FRAUD_SCENARIO"].copy()
+    frame = assemble_transactions(
+        tx,
+        start_date,
+        extra_columns=("TX_FRAUD", "TX_FRAUD_SCENARIO", *drift_gt, *FRAUD_GT_COLUMNS),
+    )
+    for column in ("GT_FRAUDSTER_ID", "GT_CAMPAIGN_ID", "GT_COMPROMISE_ID"):
+        values = frame[column].astype("Int64")
+        frame[column] = values.mask(values < 0)
+    return frame
 
 
 def _mark(tx: dict, rows: np.ndarray, scenario: int) -> None:

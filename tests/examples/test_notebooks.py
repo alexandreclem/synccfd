@@ -2,7 +2,8 @@
 
 The notebook files are not modified: the sizes are replaced in memory before
 running, in a temporary working directory (``simulator.ipynb`` writes a dataset to
-``data/``; ``drift.ipynb`` writes its figures to ``SYNCCFD_FIG_DIR``).
+``data/``; ``drift.ipynb`` and ``frauds.ipynb`` write their figures to
+``SYNCCFD_FIG_DIR``).
 """
 
 from pathlib import Path
@@ -31,8 +32,22 @@ REDUCED_SIZES = {
             "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 2000, 4000, 365"
         ),
     },
+    # Enough card-testing campaigns to find one that escalates over several days.
+    "frauds.ipynb": {
+        "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 5000, 10000, 365": (
+            "N_CUSTOMERS, N_TERMINALS, NB_DAYS = 2000, 4000, 365"
+        ),
+    },
 }
-FIGURES = {"drift.ipynb": {"drift_exemplos_clientes.pdf", "drift_fracao_regime_b.pdf"}}
+FIGURES = {
+    "drift.ipynb": {"drift_exemplos_clientes.pdf", "drift_fracao_regime_b.pdf"},
+    "frauds.ipynb": {
+        "fraudes_taxa_por_cenario.pdf",
+        "fraudes_campanha_card_testing.pdf",
+        "fraudes_valor_por_cenario.pdf",
+        "fraudes_cenario1_regime_b.pdf",
+    },
+}
 
 
 @pytest.mark.parametrize("name", sorted(REDUCED_SIZES))
