@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **v2 engine** (`DatasetGenerator(engine="v2")`, package `synccfd.simulator.engine`):
+  a vectorised engine with the v0.1 model, using only local random streams
+  (`numpy.random.Generator`, derived from `random_state` through named
+  `SeedSequence` streams). It generates 10 000 customers × 180 days in about 20 s.
+  Times of day outside the day are redrawn rather than discarded, and transactions are
+  re-sorted chronologically after the fraud scenarios. `engine="auto"` (default)
+  still uses the legacy engine.
+- `LocationFeatures` methods accept an optional `rng` (vectorised sampling, used by
+  v2). Without it, the behaviour is unchanged.
+- `scripts/benchmark.py`; a slow test that runs `examples/simulator.ipynb` end to end
+  with reduced sizes; a statistical comparison of v2 against legacy.
 - `FraudConfig` (`synccfd.simulator.config`): every fraud parameter that was hard-coded
   (scenario selection, amount threshold, compromises per day, durations, tamper
   fraction, amount multiplier, CNP probability) is now configurable through
@@ -29,6 +40,11 @@ All notable changes to this project are documented here. The format is based on
 ### Changed
 - CI: `mypy` failures now fail the build; slow end-to-end tests are excluded from the
   default `pytest` run and run in a separate CI job (`pytest -m slow`).
+- The v0.1 code moved to `synccfd.simulator.legacy` (logic unchanged).
+  `synccfd.simulator.generator.DatasetGenerator`, `synccfd.simulator.fraud.FraudSimulator`
+  and the top-level imports keep working.
+- Dependencies: `shapely>=2.0` (vectorised point-in-polygon); `scipy` added to the
+  `dev` extra (statistical tests).
 
 ## [0.1.0] — Unreleased
 

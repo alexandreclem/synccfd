@@ -161,11 +161,37 @@ the realised rate varies more from seed to seed. The default fractions give, on
 average, the absolute counts at the default size (10 000 customers, 20 000
 terminals). In this mode `random_state` controls the daily counts.
 
+## Engines
+
+`DatasetGenerator(..., engine=...)` selects the simulation engine:
+
+| `engine` | What it is |
+| --- | --- |
+| `"legacy"` | The v0.1.0 code, unchanged. With the default configuration it reproduces v0.1.0 exactly. |
+| `"v2"` | A vectorised engine with the same model, much faster. It uses only local random streams derived from `random_state`, never the global `random`/`numpy.random` state. It reproduces the v0.1 model statistically, not draw by draw. |
+| `"auto"` (default) | `"legacy"`, unless a component that only v2 supports is enabled (none yet). |
+
+```python
+generator = DatasetGenerator(n_customers=10_000, nb_days=180, engine="v2")
+customer_profiles, terminal_profiles, transactions = generator.generate()
+```
+
+Both engines produce the same columns and dtypes. Differences in v2:
+
+- A transaction whose time of day falls outside the day is redrawn, not discarded,
+  so the number of transactions per day follows the Poisson parameter exactly (v0.1
+  loses about 1.5% of the transactions, mostly CP ones).
+- Transactions are sorted chronologically again after the fraud scenarios (scenario
+  4 moves transactions in time), and `TRANSACTION_ID` is the chronological position.
+- Random points around a location use a spherical model instead of geopy's
+  ellipsoid; the difference is negligible at the radii used (≤ 12 km).
+
 ## Reproducibility & scope
 
-- Runs are deterministic: the same parameters always produce the same dataset. In
-  the current engine the random seeds are fixed internally, so `random_state` has
-  little effect on the generated data.
+- Runs are deterministic: the same parameters always produce the same dataset.
+- With `engine="v2"`, `random_state` controls every random draw: different seeds give
+  different datasets. In the legacy engine the random seeds are fixed internally,
+  so `random_state` has little effect on the generated data.
 - Locations are drawn from **Brazilian** municipality data bundled with the package
   (population-weighted). SynCCFD currently models a Brazil-based network.
 
