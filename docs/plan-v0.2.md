@@ -309,11 +309,16 @@ opcional, isso também permite a ablação (fraudes realistas com e sem comercia
 ### 3.1 Mudança de mecanismo (só no motor v2): injeção em vez de adulteração
 Na v0.1, os cenários 3 e 4 **alteram** transações legítimas do cliente (mudam
 local, tipo e multiplicam o valor por 5), e o cenário 1 **rotula** como fraude as
-transações legítimas acima de R$ 220. No v2, em todos os cenários, o fraudador **gera
+transações legítimas acima de R$ 220. No v2, nos cenários 1, 3, 4 e 5, o fraudador **gera
 transações novas**, que se somam às do cliente:
 - o histórico legítimo do cliente continua íntegro, como acontece na realidade;
 - valor, horário e comerciante da fraude vêm do comportamento do fraudador, não do cliente;
 - `FraudConfig(engine="v2")` liga esse mecanismo; `engine="legacy"` mantém a adulteração.
+  *Implementado como `FraudConfig(mechanism="inject")` / `mechanism="tamper"`, para não
+  confundir com o motor do `DatasetGenerator` (ver "Para o texto", Fase 3).*
+
+*O cenário 2 é a exceção, como na tabela abaixo: ele rotula as compras CP legítimas
+feitas no terminal comprometido, sem alterá-las.*
 
 ### 3.2 Cenários no v2
 
@@ -344,22 +349,28 @@ transações novas**, que se somam às do cliente:
 - Opcional: `fraud_target_bias`, em que fraudadores preferem clientes de alto gasto.
 
 ### 3.5 Critérios de aceite
-- [ ] Golden test passa.
-- [ ] Teste: no v2, o número de transações legítimas de cada cliente não muda quando a
+- [x] Golden test passa.
+- [x] Teste: no v2, o número de transações legítimas de cada cliente não muda quando a
       fraude é ligada (injeção, não adulteração).
-- [ ] Teste: no v2, nenhuma transação legítima é rotulada como fraude pelo cenário 1, e
+      *Mais forte que o pedido: as transações legítimas são idênticas, coluna a coluna, às
+      geradas com a fraude desligada.*
+- [x] Teste: no v2, nenhuma transação legítima é rotulada como fraude pelo cenário 1, e
       cada fraude do cenário 1 tem valor acima de fator × quantil `q` das compras recentes
       do cliente. Com *drift* ligado, a fração do cenário 1 vinda do regime B fica próxima
       da fração de transações do regime B (documentar os dois valores).
-- [ ] Teste: cenário 5 só tem valores ≤ R$ 5 e `TX_TYPE == "CNP"`; quando escala, o
+      *Medido: 13,5% e 13,5% (ver "Para o texto", Fase 3); no teste, diferença menor que
+      0,05.*
+- [x] Teste: cenário 5 só tem valores ≤ R$ 5 e `TX_TYPE == "CNP"`; quando escala, o
       `GT_CAMPAIGN_ID` é compartilhado com o cenário 3 seguinte.
-- [ ] Teste: as transações do cenário 4 acontecem em até 24 h a partir de `τ` e somam até o
+- [x] Teste: as transações do cenário 4 acontecem em até 24 h a partir de `τ` e somam até o
       limite configurado.
-- [ ] Teste: `intensity_schedule` em degrau muda a taxa diária do cenário na data prevista.
-- [ ] Taxa de fraude total do preset `realistic` entre 0,2% e 1% das transações
+- [x] Teste: `intensity_schedule` em degrau muda a taxa diária do cenário na data prevista.
+- [x] Taxa de fraude total do preset `realistic` entre 0,2% e 1% das transações
       (configurável; documentar o valor obtido).
-- [ ] Teste: todos os cenários funcionam com os comerciantes desligados.
-- [ ] Notebook `examples/frauds.ipynb`: taxa por cenário ao longo do tempo, exemplo de
+      *Os presets são da Fase 5; aqui, `FraudConfig.realistic()`, que o preset vai usar.
+      Medido: 0,44% (ver "Para o texto", Fase 3).*
+- [x] Teste: todos os cenários funcionam com os comerciantes desligados.
+- [x] Notebook `examples/frauds.ipynb`: taxa por cenário ao longo do tempo, exemplo de
       linha do tempo de uma campanha (*card testing* → CNP), valor por cenário.
 
 ---
@@ -1016,8 +1027,7 @@ nos atributos.
 
 ## Fase 2 — Customers com *concept drift*
 
-**Status:** implementada em 2026-11-02, na branch `feat/v0.2-phase2-drift`, aguardando
-revisão · PR *(a abrir)*
+**Status:** concluída em 2026-11-02 · integrada ao master pelo PR #3 (`7ac9566`)
 
 ### O que foi implementado
 
@@ -1206,7 +1216,237 @@ Configuração das figuras: 5 000 clientes, 10 000 terminais, 365 dias a partir 
 - O *drift* global ainda não tem figura própria no notebook.
 
 ## Fase 3 — Fraudadores realistas
-*(a preencher)*
+
+**Status:** implementada em 2026-11-02, na branch `feat/v0.2-phase3-frauds`, aguardando
+revisão · PR *(a abrir)*
+
+### O que foi implementado
+
+O motor v2 ganhou um segundo mecanismo de fraude, a **injeção**
+(`FraudConfig(mechanism="inject")`). Na v0.1, as fraudes são produzidas alterando ou
+rotulando transações legítimas: o cenário 1 rotula toda compra acima de R$ 220, e os
+cenários 3 e 4 mudam o tipo, o local e o valor de compras do cliente. Na injeção, o
+fraudador é um agente que faz transações **novas**, que se somam às do cliente. O
+histórico legítimo de cada cliente fica intacto, como na realidade, e os atributos de
+agregação calculados sobre esse histórico (médias e contagens por janela) não são
+contaminados pela fraude. A única exceção é o cenário 2: o terminal comprometido é o
+ponto da fraude, e as compras CP feitas nele são rotuladas, sem alteração. O mecanismo
+antigo (`mechanism="tamper"`) continua sendo o padrão, e o motor legacy só aceita ele;
+o golden test não muda.
+
+Cada cenário injetado descreve o comportamento de um tipo de fraudador. No cenário 1
+(valor anômalo), a vítima recebe uma compra muito acima do seu próprio histórico: o
+dobro do quantil de 95% das suas compras dos 30 dias anteriores, vezes $1 + 0{,}5\,U$.
+O resto da transação (tipo, terminal das compras CP, endereços, modelo de horário)
+copia uma compra recente da vítima, de modo que só o valor é anômalo. No cenário 2,
+um terminal fica comprometido por 28 dias; suas compras CP viram fraude, e cada cartão
+lido ali vaza, com probabilidade de 5%, para uma campanha do cenário 3 que começa de 1
+a 14 dias depois, do mesmo fraudador. No cenário 3 (número do cartão roubado), o
+fraudador faz rajadas de 2 a 5 compras CNP em até 3 h, em dias sorteados de um período
+de 14 dias, com entrega no seu próprio endereço, metade das rajadas de madrugada e
+valores em torno do dobro da mediana recente da vítima. No cenário 4 (cartão físico
+roubado), a partir de um instante $\tau$, o fraudador compra perto da cidade da vítima,
+em média a cada 20 minutos, até o cartão ser bloqueado (probabilidade de 15% após cada
+compra), até a próxima compra ultrapassar o limite de R$ 2 000, até 10 compras ou até
+24 h. O cenário 5 (*card testing*) é novo: de 3 a 10 compras CNP de R$ 1 a 5 em poucos
+minutos; em metade dos casos, o fraudador volta de 1 a 72 h depois com o mesmo cartão,
+numa campanha do cenário 3.
+
+Os fraudadores também mudam com o tempo. `FraudConfig.intensity_schedule` associa a
+cada cenário um multiplicador da sua taxa diária (constante, degrau, rampa ou pulso,
+com os tempos como fração do período). `FraudConfig.realistic()`, a configuração que o
+preset `realistic` da Fase 5 vai usar, liga os cinco cenários com taxas proporcionais à
+população e dois exemplos de *drift* dos fraudadores: o cenário 2 cai pela metade a
+partir de 60% do período (adoção do chip) e o cenário 5 surge a partir de 30%. Com essa
+configuração, 0,44% das transações são fraude.
+
+O gabarito de fraude ganhou três colunas: `GT_FRAUD_SCENARIO` (igual a
+`TX_FRAUD_SCENARIO`), `GT_FRAUDSTER_ID` e `GT_CAMPAIGN_ID`. Uma campanha agrupa as
+transações de um mesmo ataque: um terminal comprometido, uma sequência de cartão
+roubado ou um *card testing* com as compras que o seguem. Isso permite avaliar um
+detector por ataque, e não só por transação (por exemplo, em que transação da campanha
+o ataque foi detectado). As transações injetadas não têm regime de *drift*
+(`GT_REGIME` vazio), porque não vêm do comportamento do cliente.
+
+Com isso, a fraude e o *drift* ficam independentes, como pede a seção 3.4. Com o
+limiar fixo, 86% do cenário 1 vinha de clientes no regime B (Fase 2). Com a injeção,
+as vítimas do cenário 1 estão no regime B em 13,5% dos casos, a mesma fração do regime
+B nas transações legítimas, e nenhuma transação legítima é rotulada pelo cenário 1.
+
+### Decisões e justificativas
+| decisão | alternativa considerada | por que esta |
+|---|---|---|
+| cenário 1 injetado, com referência no histórico recente do próprio cliente (Decisão de 2026-11-02, ver Fase 2) | quantil global ou por categoria dos valores | um limiar comum a todos rotula como fraude os clientes que gastam mais, inclusive por *drift* legítimo (86% do cenário 1 no regime B, na Fase 2); o histórico recente acompanha o regime atual do cliente |
+| no cenário 1, a transação copia uma compra recente da vítima, exceto horário e valor | sortear tipo, terminal e endereços do zero | isola o sinal do cenário no valor; os outros cenários cobrem os sinais de tipo, local e horário |
+| no cenário 1, vítima com menos de 5 compras nos 30 dias anteriores é pulada | usar o valor médio do perfil | sem histórico não há "acima do histórico"; a perda é pequena (488 fraudes contra cerca de 540 vítimas sorteadas, em 10 000 clientes × 180 dias), concentrada nos primeiros dias e nos clientes que compram pouco |
+| valor do cenário 1 arredondado para cima, ao centavo | arredondamento comum | garante que todo valor fique acima de fator × quantil, como no critério de aceite |
+| cenário 2 continua rotulando compras legítimas (só as CP) | injetar compras com cartões clonados no próprio terminal | segue a tabela 3.2: o terminal é o ponto da fraude; as CNP não passam pelo terminal físico; o uso posterior dos cartões lidos é modelado pelo vazamento para o cenário 3 |
+| nome `mechanism` (`"tamper"`, `"inject"`) | `FraudConfig(engine="v2")`, como no plano | `engine` já é o motor do `DatasetGenerator`; `FraudConfig(engine="legacy")` dentro do motor v2 seria confuso |
+| `mechanism="tamper"` continua o padrão | injeção como padrão no v2 | o padrão de `FraudConfig` reproduz a v0.1 (Fase 0) e o v2 da Fase 1; a injeção é ligada explicitamente ou por `FraudConfig.realistic()` |
+| cenário 5 e `intensity_schedule` só com injeção | aplicar também à adulteração | a adulteração existe para reproduzir a v0.1; misturar os dois mecanismos complicaria a comparação |
+| no modo `absolute` com `intensity_schedule`, a contagem $c \cdot m(d)$ é arredondada para cima ou para baixo ao acaso | arredondar para o inteiro mais próximo | mantém a média $c \cdot m(d)$; com $c = 3$ e $m = 0{,}5$, o arredondamento comum daria 2 por dia em vez de 1,5 |
+| vítimas sorteadas ao acaso entre todos os clientes, cenário a cenário | excluir clientes já atacados, como a v0.1 | com as taxas proporcionais, a chance de o mesmo cliente ser vítima de dois ataques simultâneos é muito pequena; `fraud_target_bias` (opcional no plano) ficou para depois |
+| fraudes injetadas depois do fim do período são descartadas | estender o período | mantém o número de dias configurado; afeta só campanhas que começam nos últimos dias |
+| transações injetadas sem regime de *drift* (`GT_REGIME` vazio) | herdar o regime da vítima | a transação não vem do comportamento do cliente; o regime da vítima pode ser obtido do gabarito do cliente, como no notebook |
+
+### Parâmetros finais (padrões)
+Parâmetros novos do `FraudConfig`, usados só com `mechanism="inject"`:
+
+| parâmetro | valor padrão | significado |
+|---|---|---|
+| `mechanism` | `"tamper"` | `"tamper"` (v0.1) ou `"inject"` |
+| `s1_customers_per_day` / `s1_customer_fraction_per_day` | 3 / 3e-4 | vítimas do cenário 1 por dia |
+| `s5_customers_per_day` / `s5_customer_fraction_per_day` | 2 / 2e-4 | vítimas do cenário 5 por dia |
+| `history_days` | 30 | janela do histórico recente da vítima (cenários 1, 3 e 4) |
+| `min_history_tx` | 5 | mínimo de compras recentes para o cenário 1 |
+| `s1_quantile`, `s1_amount_factor`, `s1_amount_spread` | 0,95; 2,0; 0,5 | valor do cenário 1: $2 \times q_{0,95} \times (1 + 0{,}5\,U)$ |
+| `s2_leak_prob` | 0,05 | probabilidade de um cartão lido no terminal comprometido ir para o cenário 3 |
+| `s2_leak_delay_days_range` | (1, 14) | dias até o uso do cartão vazado |
+| `s3_mean_bursts` | 3 | rajadas por campanha: $1 + \mathrm{Poisson}(2)$ |
+| `s3_burst_size_range` | (2, 5) | compras por rajada |
+| `s3_burst_hours` | 3 | duração máxima de uma rajada |
+| `s3_amount_factor` | 2,0 | valor do cenário 3 em relação à mediana recente |
+| `s4_max_txs` | 10 | compras no máximo |
+| `s4_block_prob_per_tx` | 0,15 | probabilidade de bloqueio após cada compra |
+| `s4_spending_limit` | 2 000 | limite de gasto da sequência (R$) |
+| `s4_mean_gap_minutes` | 20 | intervalo médio entre compras |
+| `s4_amount_factor` | 3,0 | valor do cenário 4 em relação à mediana recente |
+| `s4_cnp_attempt_prob` | 0,2 | probabilidade de uma compra ser tentativa CNP |
+| `s5_n_tests_range` | (3, 10) | compras de teste |
+| `s5_amount_range` | (1, 5) | valor de cada teste (R$) |
+| `s5_mean_gap_seconds` | 60 | intervalo médio entre testes |
+| `s5_escalate_prob` | 0,5 | probabilidade de seguir para o cenário 3 |
+| `s5_escalation_delay_hours_range` | (1, 72) | horas até o cenário 3 |
+| `night_prob` | 0,5 | probabilidade de uma rajada (cenários 3 e 5) começar de madrugada (0–6 h) |
+| `amount_log_sigma` | 0,3 | dispersão log-normal dos valores dos cenários 3 e 4 |
+| `intensity_schedule` | vazio | multiplicador da taxa diária de cada cenário ao longo do tempo |
+
+`FraudConfig.realistic()`: cenários 1 a 5, `rate_mode="proportional"`,
+`mechanism="inject"`, cenário 2 com degrau para 0,5 em 60% do período e cenário 5 com
+degrau de 0 para 1 em 30%; os demais valores são os padrões acima. Os cenários 2, 3 e
+4 usam as frações e durações da Fase 0 (`s2_terminal_fraction_per_day = 1e-4`,
+`s2_duration_days = 28`, `s3_customer_fraction_per_day = s4_customer_fraction_per_day =
+3e-4`, `s3_duration_days = 14`).
+
+### Equações / regras
+Taxa diária do cenário $k$ no dia $d$, com multiplicador $m_k(d)$ avaliado em
+$x = (d + 0{,}5)/N_{\text{dias}}$:
+$n_k(d) \sim \mathrm{Poisson}\big(f_k \cdot N \cdot m_k(d)\big)$ no modo proporcional
+($N$ = clientes, ou terminais no cenário 2), e
+$n_k(d) = \lfloor c_k\, m_k(d) + U \rfloor$ no modo absoluto com multiplicador.
+
+Multiplicadores: degrau, $m(x) = b$ se $x < s$ e $\ell$ caso contrário; rampa,
+$m(x) = b + (\ell - b)\,\min\!\big(1, \max(0, (x - s)/(e - s))\big)$; pulso, $m(x) = \ell$
+se $s \leq x < e$ e $b$ fora.
+
+Cenário 1, para a vítima $c$ no dia $d$, com $H_c$ = valores das compras legítimas de
+$c$ em $[d - 30, d)$ (só se $|H_c| \geq 5$):
+$\text{valor} = \big\lceil 2 \cdot Q_{0{,}95}(H_c) \cdot (1 + 0{,}5\,U) \big\rceil_{\text{centavo}}$,
+com $U \sim \mathcal{U}(0, 1]$.
+
+Cenários 3 e 4: $\text{valor} = \big\lceil r_c \cdot a_k \cdot e^{Z} \big\rceil_{\text{centavo}}$,
+com $r_c$ = mediana de $H_c$ no início do ataque (ou o valor médio do perfil, com menos
+de 5 compras), $a_3 = 2$, $a_4 = 3$ e $Z \sim \mathcal{N}(0; 0{,}3)$.
+
+Cenário 3: $1 + \mathrm{Poisson}(2)$ rajadas, cada uma num dia sorteado de
+$[d_0, d_0 + 14)$; início de madrugada ($\mathcal{U}[0, 6\,\text{h})$) com probabilidade
+0,5, senão $\mathcal{U}[6, 24\,\text{h})$; de 2 a 5 compras, a primeira no início da
+rajada e as demais em instantes uniformes nas 3 h seguintes.
+
+Cenário 4: compras em $\tau, \tau + G_1, \tau + G_1 + G_2, \dots$, com
+$G_i \sim \mathrm{Exp}(\text{média } 20\,\text{min})$; para antes da compra que levaria o
+total acima de R$ 2 000, depois de uma compra com probabilidade 0,15 (bloqueio), após
+10 compras ou quando o próximo instante passa de $\tau + 24\,\text{h}$. As compras CP
+são em terminais a até 10 km do fraudador, que está a até 12 km do endereço de cobrança
+da vítima.
+
+Cenário 5: de 3 a 10 testes em $t_0, t_0 + G_1, \dots$, com
+$G_i \sim \mathrm{Exp}(\text{média } 60\,\text{s})$ e valores $\mathcal{U}(1, 5)$; com
+probabilidade 0,5, uma campanha do cenário 3 começa em $t_{\text{último}} + \mathcal{U}(1, 72)\,\text{h}$,
+com a primeira rajada nesse instante.
+
+### Figuras geradas
+| arquivo | legenda proposta | seção da dissertação |
+|---|---|---|
+| `docs/figures/fase3/fraudes_taxa_por_cenario.pdf` | Fração semanal das transações que são fraude, por cenário, com `FraudConfig.realistic()`. As linhas verticais marcam o *drift* dos fraudadores: a taxa do cenário 2 cai pela metade a partir de 60% do período, e o cenário 5 (*card testing*) surge a partir de 30%. | 4.4 Componentes novos — fraudes |
+| `docs/figures/fase3/fraudes_campanha_card_testing.pdf` | Linha do tempo de uma campanha: o fraudador testa o cartão com compras de R$ 1 a 5 em poucos minutos (cenário 5, à direita em detalhe) e, horas depois, faz rajadas de compras CNP com o mesmo cartão (cenário 3). Em cinza, as compras legítimas da vítima, que continuam normalmente. | 4.4 Componentes novos — fraudes |
+| `docs/figures/fase3/fraudes_valor_por_cenario.pdf` | Valor das transações legítimas e das fraudes de cada cenário (escala log; caixas: quartis; hastes: até 1,5 × IQR, em log). | 4.4 Componentes novos — fraudes |
+| `docs/figures/fase3/fraudes_cenario1_regime_b.pdf` | Cenário 1 e *drift*, nos mesmos dados: fração das transações legítimas que vêm do regime B; fração das transações que o limiar fixo de R$ 220 (v0.1) rotularia que vêm do regime B; fração das vítimas do cenário 1 injetado que estavam no regime B no dia da fraude. | 4.4 ou 4.6 Saídas e gabarito |
+
+Configuração das figuras: 5 000 clientes, 10 000 terminais, 365 dias a partir de
+2023-01-01, `random_state=42`, `DriftConfig()` padrão, `FraudConfig.realistic()`.
+
+### Números
+| medida | valor | configuração |
+|---|---|---|
+| taxa de fraude de `FraudConfig.realistic()` | 0,440% (cenário 1: 0,014%; 2: 0,097%; 3: 0,207%; 4: 0,078%; 5: 0,044%) | 10 000 clientes, 20 000 terminais, 180 dias, `random_state=42`, sem *drift* |
+| mesma taxa com outro tamanho | 0,435% | 1 000 clientes, 2 000 terminais, 180 dias, `random_state=42` |
+| taxa com *drift* | 0,416% | 5 000 clientes, 10 000 terminais, 365 dias, `random_state=42`, `DriftConfig()` |
+| campanhas e transações por campanha | cenário 1: 488 campanhas, 1 transação cada; 2: 237 terminais, 14,7 transações em média; 3: 724 campanhas, 10,3; 4: 555, 5,1; 5: 256, 6,2 | 10 000 clientes × 180 dias, como acima |
+| origem das campanhas do cenário 3 | 534 diretas, 72 de cartões vazados no cenário 2, 118 depois de *card testing* | idem |
+| *card testing* seguido do cenário 3 | 46% das campanhas (configurado: 50%) | idem |
+| cenário 4: gasto e duração | R$ 809 por campanha e 1,3 h em média; 72% das compras são CP | idem |
+| valor mediano | legítimas: R$ 46,15; cenário 1: R$ 238,29; 2: R$ 42,10; 3: R$ 100,22; 4: R$ 142,91; 5: R$ 2,95 | idem |
+| fração de madrugada (0–6 h) | legítimas: 12,6%; cenário 3: 42%; cenário 5: 44% | idem |
+| cenário 1 e regime B | transações legítimas no regime B: 13,5%; vítimas do cenário 1 no regime B: 13,5% (peso médio de B no dia da fraude, 513 fraudes); com o limiar fixo de R$ 220 nos mesmos dados, 85,9% das transações rotuladas viriam do regime B | 5 000 clientes, 365 dias, `random_state=42`, `DriftConfig()`, `FraudConfig.realistic()` |
+| transações legítimas rotuladas pelo cenário 1 | 0 | idem |
+| tempo de geração no v2 | injeção (`realistic`): 23,6 s; adulteração (`FraudConfig()`): 25,4 s | 10 000 clientes, 20 000 terminais, 180 dias, sem *drift* |
+
+### Testes que comprovam o comportamento
+- `tests/golden/test_legacy_reproducibility.py`: o legacy continua reproduzindo a v0.1.0.
+- `tests/engine/test_injection.py`:
+  - validação de `FraudConfig` e `IntensitySchedule`; a injeção exige o motor v2 (o
+    `auto` escolhe o v2; o legacy recusa); `FraudConfig()` continua com adulteração;
+  - formas do multiplicador (constante, degrau, rampa, pulso);
+  - `test_step_schedule_changes_daily_rate_on_the_planned_day`: no modo absoluto, o
+    degrau muda a contagem exatamente no dia previsto; no proporcional, a taxa média cai
+    pela metade (tolerância de 0,02);
+  - `test_schedule_in_generated_data`: o primeiro *card testing* acontece no dia 27 de 90
+    (30% do período);
+  - `test_legitimate_transactions_are_unchanged`: as transações legítimas são idênticas,
+    coluna a coluna, às geradas com a fraude desligada, e toda fraude que não é do
+    cenário 2 é uma transação nova;
+  - `test_scenario_1_is_far_above_the_customer_history`: todo valor do cenário 1 fica
+    acima de fator × quantil das compras dos 30 dias anteriores da vítima, e abaixo do
+    teto $(1 + 0{,}5)$ vezes esse valor;
+  - `test_scenario_1_with_drift_does_not_label_regime_b`: com *drift*, nenhuma transação
+    legítima é rotulada, e a fração do cenário 1 no regime B difere em menos de 0,05 da
+    fração das transações legítimas no regime B;
+  - cenário 2 (só compras CP, uma campanha por terminal, cartões vazados usados depois
+    pelo mesmo fraudador); cenário 3 (CNP, endereço do fraudador); cenário 4 (até 24 h,
+    até o limite e o número máximo de compras, compras CP perto da vítima); cenário 5
+    (valores de R$ 1 a 5, CNP, de 3 a 10 testes; quando escala, mesma campanha, cliente e
+    fraudador, e o cenário 3 vem depois do último teste);
+  - os cinco cenários funcionam sem comerciantes; gabarito; reprodutibilidade;
+    `test_realistic_fraud_rate`: taxa entre 0,2% e 1%.
+- `tests/examples/test_notebooks.py` (`slow`): executa também `examples/frauds.ipynb`.
+
+### Desvios do plano
+- `FraudConfig(engine="v2")` virou `FraudConfig(mechanism="inject")` (ver "Decisões").
+- O cenário 2 continua rotulando compras legítimas, como na tabela 3.2; a seção 3.1, que
+  dizia que todos os cenários injetam transações, foi corrigida.
+- O preset `realistic` é da Fase 5; o critério de taxa foi verificado com
+  `FraudConfig.realistic()`, que o preset vai usar.
+- `fraud_target_bias` (opcional) não foi implementado.
+- O gabarito das transações injetadas deixa `GT_REGIME` e `GT_REGIME_WEIGHT` vazios.
+- O teste do cenário 4 verifica a distância das compras CP à vítima, e não uma fração
+  mínima de compras CP: com poucos terminais (2 000), o fraudador muitas vezes não tem
+  terminal perto e só faz tentativas CNP (53% de CP no conjunto do teste, contra 72% com
+  20 000 terminais).
+
+### Pendências / ideias
+- Com comerciantes (Fase 4): o cenário 1 em categorias de valor alto, o cenário 2
+  comprometendo o comerciante inteiro, o cenário 3 em categorias revendáveis ou
+  digitais e o cenário 4 em categorias revendáveis, como na tabela 3.2; e a migração de
+  categoria do cenário 3 no `intensity_schedule`.
+- `fraud_target_bias`: fraudadores com preferência por clientes de alto gasto.
+- Na curva semanal do cenário 2, a taxa sobe nos primeiros 28 dias (os terminais
+  comprometidos se acumulam até a primeira duração completa) e varia bastante entre
+  semanas, porque o número de compras por terminal é muito desigual; a queda do degrau
+  aparece, mas para um efeito mais limpo valeria média de várias seeds.
+- Os cartões vazados no cenário 2 são usados pelo mesmo fraudador (mesmo
+  `GT_FRAUDSTER_ID` do terminal); um modelo de revenda atribuiria outro fraudador a cada
+  campanha vazada.
 
 ## Fase 4 — Merchants
 *(a preencher)*

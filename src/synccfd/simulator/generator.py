@@ -39,7 +39,8 @@ class DatasetGenerator:
       statistically, not draw by draw.
 
     ``engine="auto"`` (default) uses ``"legacy"`` unless a component that only the
-    v2 engine supports is enabled: ``drift`` or ``seasonality``.
+    v2 engine supports is enabled: ``drift``, ``seasonality`` or fraud injection
+    (``FraudConfig(mechanism="inject")``).
 
     Example:
         >>> generator = DatasetGenerator(n_customers=1000, n_terminals=10000)
@@ -130,6 +131,12 @@ class DatasetGenerator:
             for name, value in (
                 ("drift", self.drift_config),
                 ("seasonality", self.seasonality_config),
+                (
+                    'fraud mechanism="inject"',
+                    self.fraud_config
+                    if self.fraud_config.mechanism == "inject"
+                    else None,
+                ),
             )
             if value is not None
         ]
@@ -175,7 +182,8 @@ class DatasetGenerator:
                 - TX_TERM_LAT, TX_TERM_LONG: terminal location coordinates
                 - TX_TYPE: Transaction type (CP: Card Present, CNP: Card Not Present)
                 - TX_FRAUD: Binary fraud indicator
-                - TX_FRAUD_SCENARIO: Type of fraud (0: legitimate, 1-4: fraud scenarios)
+                - TX_FRAUD_SCENARIO: Type of fraud (0: legitimate, 1-4: fraud scenarios;
+                  5 with fraud injection)
         """
         if self.engine == "v2":
             result = v2.simulate(

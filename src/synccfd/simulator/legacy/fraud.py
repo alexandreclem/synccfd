@@ -29,6 +29,11 @@ class FraudSimulator:
                 reproduces v0.1.0.
         """
         self.config = config if config is not None else FraudConfig()
+        if self.config.mechanism != "tamper":
+            raise ValueError(
+                'The legacy fraud simulator only supports mechanism="tamper"; '
+                "fraud injection requires the v2 engine."
+            )
         self.random_state = random_state
         if random_state is not None:
             random.seed(random_state)

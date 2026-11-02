@@ -81,6 +81,14 @@ def simulate(
     if drifts is not None:
         customers = pd.concat([customers, drift_columns(drifts)], axis=1)
     transactions = apply_frauds(
-        transactions, customers, terminals, loc_features, fraud, streams, start_date
+        transactions,
+        customers,
+        terminals,
+        loc_features,
+        fraud,
+        streams,
+        start_date,
+        nb_days=nb_days,
+        shock_by_day=factors.shock if factors is not None else None,
     )
     return V2Result(customers, terminals, transactions, loc_features)
