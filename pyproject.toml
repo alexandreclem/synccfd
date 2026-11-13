@@ -1,0 +1,100 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "synccfd"
+version = "1.0.0"
+description = "Synthetic credit card transaction & fraud data simulator"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Alexandre Clem", email = "alexandreclem.santos@gmail.com" },
+]
+keywords = [
+    "synthetic-data",
+    "fraud-detection",
+    "credit-card",
+    "simulator",
+    "machine-learning",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.19.0",
+    "pandas>=1.2.0",
+    "geopandas>=0.9.0",
+    "shapely>=2.0.0",
+    "pyarrow>=14.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/alexandreclem/synccfd"
+Repository = "https://github.com/alexandreclem/synccfd"
+"Bug Tracker" = "https://github.com/alexandreclem/synccfd/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+    "haversine>=2.3.0",
+]
+examples = [
+    "matplotlib>=3.5.0",
+    "seaborn>=0.11.0",
+    "jupyter>=1.0.0",
+    "notebook>=6.4.0",
+    "ipykernel>=6.0.0",
+    "haversine>=2.3.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/synccfd"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+src = ["src", "tests"]
+extend-exclude = ["examples"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+]
+# Rules that the py310 target enables; the code keeps its current syntax.
+ignore = [
+    "UP007",  # X | Y instead of Union[X, Y]
+    "UP035",  # imports from collections.abc
+    "UP045",  # X | None instead of Optional[X]
+    "B905",   # zip() without strict=
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q -m \"not slow\""
+testpaths = ["tests"]
+markers = [
+    "slow: long-running end-to-end tests, excluded by default (run with -m slow)",
+]
